@@ -256,6 +256,61 @@ func TestStatus_BuildByNumber(t *testing.T) {
 	})
 }
 
+func TestStatus_Logs(t *testing.T) {
+	t.Run("--logs at job+number level dumps the console", func(t *testing.T) {
+		jc := &jenkinsClientMock{
+			ConsoleTextFunc: func(_ context.Context, buildURL string) (string, error) {
+				assert.Equal(t, "https://jenkins.example.com/job/deploy-app/42/", buildURL)
+				return "console for build 42\n", nil
+			},
+			StageViewFunc: func(context.Context, string) ([]jenkins.Stage, error) {
+				t.Fatal("StageView must not be called with --logs")
+				return nil, nil
+			},
+		}
+		a, out, _ := readTestApp(t, jc)
+		warmStatusCache(t)
+
+		code := a.run([]string{"status", "deploy-app", "42", "--logs"})
+		require.Equal(t, exitOK, code)
+		assert.Contains(t, out.String(), "console for build 42")
+	})
+
+	t.Run("--logs with --wait follows the console", func(t *testing.T) {
+		var polls int32
+		jc := &jenkinsClientMock{
+			ConsoleProgressiveFunc: func(_ context.Context, _ string, start int64) (jenkins.ConsoleChunk, error) {
+				if atomic.AddInt32(&polls, 1) < 2 {
+					return jenkins.ConsoleChunk{Text: "a\n", Size: 2, More: true}, nil
+				}
+				return jenkins.ConsoleChunk{Text: "b\n", Size: 4, More: false}, nil
+			},
+		}
+		a, out, _ := readTestApp(t, jc)
+		a.pollInterval = time.Millisecond
+		warmStatusCache(t)
+
+		code := a.run([]string{"status", "deploy-app", "42", "--wait", "--logs"})
+		require.Equal(t, exitOK, code)
+		assert.Equal(t, "a\nb\n", out.String())
+	})
+
+	t.Run("--logs with job only is a usage error", func(t *testing.T) {
+		a, _, errBuf := readTestApp(t, &jenkinsClientMock{})
+		warmStatusCache(t)
+		code := a.run([]string{"status", "deploy-app", "--logs"})
+		assert.Equal(t, exitUsage, code)
+		assert.Contains(t, errBuf.String(), "--logs requires a job and build number")
+	})
+
+	t.Run("--logs with no args is a usage error", func(t *testing.T) {
+		a, _, errBuf := readTestApp(t, &jenkinsClientMock{})
+		code := a.run([]string{"status", "--logs"})
+		assert.Equal(t, exitUsage, code)
+		assert.Contains(t, errBuf.String(), "--logs requires a job and build number")
+	})
+}
+
 func TestStatus_Wait(t *testing.T) {
 	t.Run("follows a running build to terminal and renders final snapshot", func(t *testing.T) {
 		var polls int32

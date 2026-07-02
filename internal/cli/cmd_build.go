@@ -52,6 +52,10 @@ func (c *buildCmd) runBuild(name string) error {
 	if name == "" {
 		return fmt.Errorf("build: missing job name")
 	}
+	// --logs needs the resolved build URL, which only exists once the run starts, so it implies --wait.
+	if c.Logs {
+		c.Wait = true
+	}
 	prof, client, err := c.app.clientFor()
 	if err != nil {
 		return err
@@ -169,17 +173,51 @@ func (c *buildCmd) waitForBuild(client jenkinsClient, name, loc string) error {
 	// BuildResult alone decides.
 	seen := map[string]string{}
 	var lastStageErr string
+	var consoleStart int64
 	for {
 		res, err := client.BuildResult(ctx, buildURL)
 		if err != nil {
 			return fmt.Errorf("poll build result for %q: %w", name, err)
 		}
-		c.logStages(ctx, client, buildURL, seen, &lastStageErr)
+		if c.Logs {
+			// --logs streams the console (to stdout) in place of the stage lines.
+			next, _, cerr := c.app.streamConsoleChunk(ctx, client, buildURL, consoleStart)
+			if cerr != nil {
+				return fmt.Errorf("streaming console for %q: %w", name, cerr)
+			}
+			consoleStart = next
+		} else {
+			c.logStages(ctx, client, buildURL, seen, &lastStageErr)
+		}
 		if !res.Building && res.Result != "" {
+			if c.Logs {
+				if err := c.drainConsole(ctx, client, name, buildURL, consoleStart); err != nil {
+					return err
+				}
+			}
 			return c.reportResult(name, buildURL, res.Result)
 		}
 		if err := c.app.sleepPoll(ctx); err != nil {
 			return fmt.Errorf("waiting for build %q to finish: %w", name, err)
+		}
+	}
+}
+
+// drainConsole flushes any console output produced after the build reached its terminal result,
+// pacing each fetch with sleepPoll (bounded by waitEvery) so it never busy-spins while Jenkins
+// finishes writing the log tail.
+func (c *buildCmd) drainConsole(ctx context.Context, client jenkinsClient, name, buildURL string, start int64) error {
+	for {
+		next, more, err := c.app.streamConsoleChunk(ctx, client, buildURL, start)
+		if err != nil {
+			return fmt.Errorf("draining console for %q: %w", name, err)
+		}
+		start = next
+		if !more {
+			return nil
+		}
+		if err := c.app.sleepPoll(ctx); err != nil {
+			return fmt.Errorf("draining console for %q: %w", name, err)
 		}
 	}
 }

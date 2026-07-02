@@ -592,3 +592,75 @@ func TestBuild_Errors(t *testing.T) {
 		assert.Equal(t, exitUsage, code)
 	})
 }
+
+func TestBuild_WaitLogs(t *testing.T) {
+	const queueLoc = "https://jenkins.example.com/queue/item/9/"
+	const buildURL = "https://jenkins.example.com/job/deploy-app/7/"
+
+	t.Run("--logs implies --wait, streams console, suppresses stages, exits by result", func(t *testing.T) {
+		var poll int32
+		jc := &jenkinsClientMock{
+			BuildFunc: func(context.Context, string, map[string]string) (string, error) { return queueLoc, nil },
+			QueueItemFunc: func(context.Context, string) (jenkins.QueueItem, error) {
+				return jenkins.QueueItem{Executable: &jenkins.Executable{Number: 7, URL: buildURL}}, nil
+			},
+			BuildResultFunc: func(context.Context, string) (jenkins.BuildResult, error) {
+				// building on the first poll, terminal SUCCESS after.
+				if atomic.AddInt32(&poll, 1) < 2 {
+					return jenkins.BuildResult{Building: true}, nil
+				}
+				return jenkins.BuildResult{Building: false, Result: "SUCCESS"}, nil
+			},
+			ConsoleProgressiveFunc: func(_ context.Context, _ string, start int64) (jenkins.ConsoleChunk, error) {
+				// stream two live chunks then a tail chunk after terminal, then no more.
+				switch start {
+				case 0:
+					return jenkins.ConsoleChunk{Text: "starting\n", Size: 9, More: true}, nil
+				case 9:
+					return jenkins.ConsoleChunk{Text: "working\n", Size: 17, More: true}, nil
+				default:
+					return jenkins.ConsoleChunk{Text: "done\n", Size: 22, More: false}, nil
+				}
+			},
+			StageViewFunc: func(context.Context, string) ([]jenkins.Stage, error) {
+				t.Fatal("StageView must not be called with --logs")
+				return nil, nil
+			},
+		}
+		a, out, _ := readTestApp(t, jc)
+		a.pollInterval = time.Millisecond
+		warmBuildCache(t, true)
+
+		code := a.run([]string{"build", "deploy-app", "--logs"})
+		require.Equal(t, exitOK, code)
+		s := out.String()
+		assert.Contains(t, s, "starting\n")
+		assert.Contains(t, s, "working\n")
+		assert.Contains(t, s, "done\n", "tail chunk emitted after terminal BuildResult")
+		assert.Contains(t, s, "SUCCESS")
+		assert.Empty(t, jc.StageViewCalls())
+	})
+
+	t.Run("--logs still exits 4 on a FAILURE result", func(t *testing.T) {
+		jc := &jenkinsClientMock{
+			BuildFunc: func(context.Context, string, map[string]string) (string, error) { return queueLoc, nil },
+			QueueItemFunc: func(context.Context, string) (jenkins.QueueItem, error) {
+				return jenkins.QueueItem{Executable: &jenkins.Executable{Number: 7, URL: buildURL}}, nil
+			},
+			BuildResultFunc: func(context.Context, string) (jenkins.BuildResult, error) {
+				return jenkins.BuildResult{Building: false, Result: "FAILURE"}, nil
+			},
+			ConsoleProgressiveFunc: func(context.Context, string, int64) (jenkins.ConsoleChunk, error) {
+				return jenkins.ConsoleChunk{Text: "boom\n", Size: 5, More: false}, nil
+			},
+		}
+		a, out, errBuf := readTestApp(t, jc)
+		a.pollInterval = time.Millisecond
+		warmBuildCache(t, true)
+
+		code := a.run([]string{"build", "deploy-app", "--logs"})
+		assert.Equal(t, exitBuildFail, code)
+		assert.Contains(t, out.String(), "boom\n")
+		assert.Contains(t, errBuf.String(), "FAILURE")
+	})
+}

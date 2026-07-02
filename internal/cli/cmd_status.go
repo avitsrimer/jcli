@@ -26,6 +26,10 @@ func (c *statusCmd) runStatus(args []string) error {
 	if c.Wait && len(args) == 0 {
 		return fmt.Errorf("status: --wait requires a job (optionally a build number)")
 	}
+	// --logs shows a single build's console, so it only makes sense at the build-id level.
+	if c.Logs && len(args) != 2 {
+		return fmt.Errorf("status: --logs requires a job and build number (use 'logs <job>' for the latest build)")
+	}
 
 	switch len(args) {
 	case 0:
@@ -37,8 +41,33 @@ func (c *statusCmd) runStatus(args []string) error {
 		if err != nil || number <= 0 {
 			return fmt.Errorf("status: invalid build number %q", args[1])
 		}
+		if c.Logs {
+			return c.buildLogs(args[0], number)
+		}
 		return c.buildByNumber(args[0], number)
 	}
+}
+
+// buildLogs resolves the numbered build and shows its console output instead of stages: a one-shot
+// dump, or a live follow under --wait. It reuses the shared console helpers.
+func (c *statusCmd) buildLogs(name string, number int) error {
+	prof, client, err := c.app.clientFor()
+	if err != nil {
+		return err
+	}
+	m, err := cache.Load(prof.Name)
+	if err != nil {
+		return fmt.Errorf("load cache: %w", err)
+	}
+	job, err := c.app.resolveJob(client, m, prof, name)
+	if err != nil {
+		return err
+	}
+	buildURL := buildURLFor(prof, job, number)
+	if c.Wait {
+		return c.app.followConsole(client, buildURL)
+	}
+	return c.app.dumpConsole(client, buildURL)
 }
 
 // runningList reports every build currently executing across all nodes via the /computer executor

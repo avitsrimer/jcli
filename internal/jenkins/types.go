@@ -150,3 +150,12 @@ type computerResponse struct {
 type executor struct {
 	CurrentExecutable *RunningBuild `json:"currentExecutable"`
 }
+
+// ConsoleChunk is one progressive slice of a build's console output from
+// logText/progressiveText. Size is the next byte offset to request; More is true while the build
+// is still producing output (Jenkins' X-More-Data), false once the log is complete.
+type ConsoleChunk struct {
+	Text string
+	Size int64
+	More bool
+}

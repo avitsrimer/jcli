@@ -435,6 +435,92 @@ func TestClient_RunningBuilds(t *testing.T) {
 	})
 }
 
+func TestClient_ConsoleText(t *testing.T) {
+	t.Run("returns the full console body without a json accept header", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			assert.Equal(t, "/job/Logistics/42/consoleText", r.URL.Path)
+			assert.NotEqual(t, "application/json", r.Header.Get("Accept"))
+			_, _ = w.Write([]byte("Started\nRunning tests\nFinished: SUCCESS\n"))
+		}))
+		defer srv.Close()
+
+		c := New(srv.URL, "alice", "tok", srv.Client())
+		text, err := c.ConsoleText(context.Background(), srv.URL+"/job/Logistics/42/")
+		require.NoError(t, err)
+		assert.Contains(t, text, "Finished: SUCCESS")
+	})
+
+	t.Run("absent build surfaces ErrNotFound", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer srv.Close()
+
+		c := New(srv.URL, "alice", "tok", srv.Client())
+		_, err := c.ConsoleText(context.Background(), srv.URL+"/job/Logistics/999/")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrNotFound)
+	})
+
+	t.Run("401 surfaces ErrAuth", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusUnauthorized)
+		}))
+		defer srv.Close()
+
+		c := New(srv.URL, "alice", "tok", srv.Client())
+		_, err := c.ConsoleText(context.Background(), srv.URL+"/job/Logistics/1/")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrAuth)
+	})
+}
+
+func TestClient_ConsoleProgressive(t *testing.T) {
+	t.Run("parses text-size and more-data headers", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			assert.Equal(t, "/job/Logistics/42/logText/progressiveText", r.URL.Path)
+			assert.Equal(t, "10", r.URL.Query().Get("start"))
+			w.Header().Set("X-Text-Size", "42")
+			w.Header().Set("X-More-Data", "true")
+			_, _ = w.Write([]byte("more output"))
+		}))
+		defer srv.Close()
+
+		c := New(srv.URL, "alice", "tok", srv.Client())
+		chunk, err := c.ConsoleProgressive(context.Background(), srv.URL+"/job/Logistics/42/", 10)
+		require.NoError(t, err)
+		assert.Equal(t, "more output", chunk.Text)
+		assert.Equal(t, int64(42), chunk.Size)
+		assert.True(t, chunk.More)
+	})
+
+	t.Run("no more-data header means finished", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("X-Text-Size", "100")
+			_, _ = w.Write([]byte("tail"))
+		}))
+		defer srv.Close()
+
+		c := New(srv.URL, "alice", "tok", srv.Client())
+		chunk, err := c.ConsoleProgressive(context.Background(), srv.URL+"/job/Logistics/42/", 96)
+		require.NoError(t, err)
+		assert.False(t, chunk.More)
+		assert.Equal(t, int64(100), chunk.Size)
+	})
+
+	t.Run("size header absent falls back to start plus body length", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte("12345"))
+		}))
+		defer srv.Close()
+
+		c := New(srv.URL, "alice", "tok", srv.Client())
+		chunk, err := c.ConsoleProgressive(context.Background(), srv.URL+"/job/Logistics/42/", 7)
+		require.NoError(t, err)
+		assert.Equal(t, int64(12), chunk.Size, "start(7) + len(\"12345\")")
+	})
+}
+
 func TestClient_StatusMapping(t *testing.T) {
 	tests := []struct {
 		name    string

@@ -28,6 +28,12 @@ var _ jenkinsClient = &jenkinsClientMock{}
 //			BuildStatusFunc: func(ctx context.Context, buildURL string) (jenkins.Build, error) {
 //				panic("mock out the BuildStatus method")
 //			},
+//			ConsoleProgressiveFunc: func(ctx context.Context, buildURL string, start int64) (jenkins.ConsoleChunk, error) {
+//				panic("mock out the ConsoleProgressive method")
+//			},
+//			ConsoleTextFunc: func(ctx context.Context, buildURL string) (string, error) {
+//				panic("mock out the ConsoleText method")
+//			},
 //			JobParamsFunc: func(ctx context.Context, jobPath string) ([]jenkins.Param, error) {
 //				panic("mock out the JobParams method")
 //			},
@@ -64,6 +70,12 @@ type jenkinsClientMock struct {
 
 	// BuildStatusFunc mocks the BuildStatus method.
 	BuildStatusFunc func(ctx context.Context, buildURL string) (jenkins.Build, error)
+
+	// ConsoleProgressiveFunc mocks the ConsoleProgressive method.
+	ConsoleProgressiveFunc func(ctx context.Context, buildURL string, start int64) (jenkins.ConsoleChunk, error)
+
+	// ConsoleTextFunc mocks the ConsoleText method.
+	ConsoleTextFunc func(ctx context.Context, buildURL string) (string, error)
 
 	// JobParamsFunc mocks the JobParams method.
 	JobParamsFunc func(ctx context.Context, jobPath string) ([]jenkins.Param, error)
@@ -106,6 +118,22 @@ type jenkinsClientMock struct {
 		}
 		// BuildStatus holds details about calls to the BuildStatus method.
 		BuildStatus []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// BuildURL is the buildURL argument value.
+			BuildURL string
+		}
+		// ConsoleProgressive holds details about calls to the ConsoleProgressive method.
+		ConsoleProgressive []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// BuildURL is the buildURL argument value.
+			BuildURL string
+			// Start is the start argument value.
+			Start int64
+		}
+		// ConsoleText holds details about calls to the ConsoleText method.
+		ConsoleText []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// BuildURL is the buildURL argument value.
@@ -155,16 +183,18 @@ type jenkinsClientMock struct {
 			Ctx context.Context
 		}
 	}
-	lockBuild         sync.RWMutex
-	lockBuildResult   sync.RWMutex
-	lockBuildStatus   sync.RWMutex
-	lockJobParams     sync.RWMutex
-	lockJobs          sync.RWMutex
-	lockLastBuild     sync.RWMutex
-	lockQueueItem     sync.RWMutex
-	lockRunningBuilds sync.RWMutex
-	lockStageView     sync.RWMutex
-	lockWhoAmI        sync.RWMutex
+	lockBuild              sync.RWMutex
+	lockBuildResult        sync.RWMutex
+	lockBuildStatus        sync.RWMutex
+	lockConsoleProgressive sync.RWMutex
+	lockConsoleText        sync.RWMutex
+	lockJobParams          sync.RWMutex
+	lockJobs               sync.RWMutex
+	lockLastBuild          sync.RWMutex
+	lockQueueItem          sync.RWMutex
+	lockRunningBuilds      sync.RWMutex
+	lockStageView          sync.RWMutex
+	lockWhoAmI             sync.RWMutex
 }
 
 // Build calls BuildFunc.
@@ -276,6 +306,82 @@ func (mock *jenkinsClientMock) BuildStatusCalls() []struct {
 	mock.lockBuildStatus.RLock()
 	calls = mock.calls.BuildStatus
 	mock.lockBuildStatus.RUnlock()
+	return calls
+}
+
+// ConsoleProgressive calls ConsoleProgressiveFunc.
+func (mock *jenkinsClientMock) ConsoleProgressive(ctx context.Context, buildURL string, start int64) (jenkins.ConsoleChunk, error) {
+	if mock.ConsoleProgressiveFunc == nil {
+		panic("jenkinsClientMock.ConsoleProgressiveFunc: method is nil but jenkinsClient.ConsoleProgressive was just called")
+	}
+	callInfo := struct {
+		Ctx      context.Context
+		BuildURL string
+		Start    int64
+	}{
+		Ctx:      ctx,
+		BuildURL: buildURL,
+		Start:    start,
+	}
+	mock.lockConsoleProgressive.Lock()
+	mock.calls.ConsoleProgressive = append(mock.calls.ConsoleProgressive, callInfo)
+	mock.lockConsoleProgressive.Unlock()
+	return mock.ConsoleProgressiveFunc(ctx, buildURL, start)
+}
+
+// ConsoleProgressiveCalls gets all the calls that were made to ConsoleProgressive.
+// Check the length with:
+//
+//	len(mockedjenkinsClient.ConsoleProgressiveCalls())
+func (mock *jenkinsClientMock) ConsoleProgressiveCalls() []struct {
+	Ctx      context.Context
+	BuildURL string
+	Start    int64
+} {
+	var calls []struct {
+		Ctx      context.Context
+		BuildURL string
+		Start    int64
+	}
+	mock.lockConsoleProgressive.RLock()
+	calls = mock.calls.ConsoleProgressive
+	mock.lockConsoleProgressive.RUnlock()
+	return calls
+}
+
+// ConsoleText calls ConsoleTextFunc.
+func (mock *jenkinsClientMock) ConsoleText(ctx context.Context, buildURL string) (string, error) {
+	if mock.ConsoleTextFunc == nil {
+		panic("jenkinsClientMock.ConsoleTextFunc: method is nil but jenkinsClient.ConsoleText was just called")
+	}
+	callInfo := struct {
+		Ctx      context.Context
+		BuildURL string
+	}{
+		Ctx:      ctx,
+		BuildURL: buildURL,
+	}
+	mock.lockConsoleText.Lock()
+	mock.calls.ConsoleText = append(mock.calls.ConsoleText, callInfo)
+	mock.lockConsoleText.Unlock()
+	return mock.ConsoleTextFunc(ctx, buildURL)
+}
+
+// ConsoleTextCalls gets all the calls that were made to ConsoleText.
+// Check the length with:
+//
+//	len(mockedjenkinsClient.ConsoleTextCalls())
+func (mock *jenkinsClientMock) ConsoleTextCalls() []struct {
+	Ctx      context.Context
+	BuildURL string
+} {
+	var calls []struct {
+		Ctx      context.Context
+		BuildURL string
+	}
+	mock.lockConsoleText.RLock()
+	calls = mock.calls.ConsoleText
+	mock.lockConsoleText.RUnlock()
 	return calls
 }
 

@@ -19,6 +19,7 @@ func (a *app) commands() []command {
 		{name: "get", short: "show job details and params", data: &getCmd{app: a}},
 		{name: "build", short: "trigger a parameterized build", data: &buildCmd{app: a}},
 		{name: "status", short: "show running jobs or a build's stage status", data: &statusCmd{app: a}},
+		{name: "logs", short: "print a build's console output", data: &logsCmd{app: a}},
 		{name: "dump", short: "emit the full cached job map as JSON", data: &dumpCmd{app: a}},
 		{name: "install-skill", short: "install the jcli Claude skill", data: &installSkillCmd{app: a}},
 	}
@@ -90,6 +91,7 @@ type buildCmd struct {
 	app      *app
 	Wait     bool `long:"wait" description:"poll the build to completion and exit by its result"`
 	NoStages bool `long:"no-stages" description:"suppress pipeline stage-view progress lines during --wait"`
+	Logs     bool `long:"logs" description:"stream the build's console output (implies --wait, replaces stage lines)"`
 }
 
 // Execute implements flags.Commander. The first positional is the job name (required).
@@ -108,10 +110,21 @@ func (c *buildCmd) Execute(args []string) error {
 type statusCmd struct {
 	app  *app
 	Wait bool `long:"wait" description:"follow the target build's stage status to completion"`
+	Logs bool `long:"logs" description:"show the build's console output instead of stages (requires a job and build number)"`
 }
 
 // Execute implements flags.Commander. Positionals are [job [number]]; none means "running now".
 func (c *statusCmd) Execute(args []string) error { return c.app.fail(c.runStatus(args)) }
+
+// logsCmd prints a build's console output. Positionals are job [number]; job-only targets the
+// latest build. --wait follows the console progressively until the build finishes.
+type logsCmd struct {
+	app  *app
+	Wait bool `long:"wait" description:"follow the console output until the build finishes"`
+}
+
+// Execute implements flags.Commander. Positionals are [job [number]].
+func (c *logsCmd) Execute(args []string) error { return c.app.fail(c.runLogs(args)) }
 
 // dumpCmd emits the full cached job map as formatted JSON; --refresh rebuilds via a crawl first.
 type dumpCmd struct {

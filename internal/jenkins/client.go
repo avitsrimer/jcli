@@ -218,6 +218,67 @@ func (c *Client) RunningBuilds(ctx context.Context) ([]RunningBuild, error) {
 	return out, nil
 }
 
+// ConsoleText returns a build's full console output by its absolute URL
+// (<buildURL>/consoleText). ErrNotFound surfaces when the build is absent.
+func (c *Client) ConsoleText(ctx context.Context, buildURL string) (string, error) {
+	endpoint := strings.TrimRight(buildURL, "/") + "/consoleText"
+	text, _, err := c.getText(ctx, endpoint, nil)
+	if err != nil {
+		return "", fmt.Errorf("console %s: %w", buildURL, err)
+	}
+	return text, nil
+}
+
+// ConsoleProgressive returns the console chunk from byte offset start
+// (<buildURL>/logText/progressiveText?start=N), parsing X-Text-Size (next offset) and X-More-Data
+// (more output pending). When the size header is missing it falls back to start+len(text) so the
+// caller still advances. ErrNotFound surfaces when the build is absent.
+func (c *Client) ConsoleProgressive(ctx context.Context, buildURL string, start int64) (ConsoleChunk, error) {
+	endpoint := strings.TrimRight(buildURL, "/") + "/logText/progressiveText"
+	query := url.Values{"start": {strconv.FormatInt(start, 10)}}
+	text, header, err := c.getText(ctx, endpoint, query)
+	if err != nil {
+		return ConsoleChunk{}, fmt.Errorf("console %s: %w", buildURL, err)
+	}
+	size := start + int64(len(text))
+	if raw := header.Get("X-Text-Size"); raw != "" {
+		if parsed, perr := strconv.ParseInt(raw, 10, 64); perr == nil {
+			size = parsed
+		}
+	}
+	return ConsoleChunk{Text: text, Size: size, More: header.Get("X-More-Data") == "true"}, nil
+}
+
+// getText performs an authenticated GET against an absolute endpoint and returns the body as a
+// string plus the response headers, mapping status codes via the same statusError as the JSON
+// path. Unlike getJSONURL it sets no JSON Accept header (console endpoints return text/plain) and
+// reads the full body. query may be nil.
+func (c *Client) getText(ctx context.Context, endpoint string, query url.Values) (string, http.Header, error) {
+	if len(query) > 0 {
+		endpoint += "?" + query.Encode()
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return "", nil, fmt.Errorf("new request: %w", err)
+	}
+	req.SetBasicAuth(c.username, c.token)
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return "", nil, fmt.Errorf("request %s: %w", endpoint, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", nil, statusError(resp)
+	}
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", nil, fmt.Errorf("read response: %w", err)
+	}
+	return string(data), resp.Header, nil
+}
+
 // getJSON performs an authenticated GET against a baseURL-relative path, maps status codes to
 // typed errors, and decodes a 200 body into out. query may be nil.
 func (c *Client) getJSON(ctx context.Context, path string, query url.Values, out any) error {

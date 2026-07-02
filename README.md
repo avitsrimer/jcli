@@ -18,6 +18,8 @@ named **profiles**.
   a per-profile cached job map (crawled on first use / `--refresh`).
 - Check run state with `status` — list the builds running right now, see whether
   a job is running, or follow a build's pipeline stages to completion (`--wait`).
+- Read a build's console with `logs` (or `--logs` on `build`/`status`), dumped in
+  full or streamed live while the build runs.
 - **macOS Keychain integration** — API tokens are stored in and read from the
   login Keychain, authorized by the keychain ACL bound to the signed `jcli` binary
   and served through a short-lived in-memory agent so repeated commands do not
@@ -143,6 +145,14 @@ jcli status <job-name> 42
 # follow a running build's stages to completion
 jcli status <job-name> --wait
 
+# print a build's console output (latest build, or a specific number)
+jcli logs <job-name>
+jcli logs <job-name> 42
+
+# follow a running build's console live; or stream it straight from a trigger
+jcli logs <job-name> --wait
+jcli build <job-name> --logs          # implies --wait
+
 # emit the full cached job map as formatted JSON
 jcli dump
 
@@ -207,6 +217,28 @@ build as normal output and still exits `0`; only a missing job/build (exit `3`)
 or auth failure (exit `2`) is non-zero. The same stage glyphs and stage-view
 fallback described above apply, and `--json` emits a structured document.
 
+### `logs` and `--logs`
+
+`logs` prints a build's Jenkins console output:
+
+- `jcli logs <job>` — the job's **latest** build's console.
+- `jcli logs <job> <number>` — a specific build's console.
+- Without `--wait` it dumps the full console once; with `--wait` it streams
+  progressively (`logText/progressiveText`) until the build finishes.
+
+The same output is available inline on the other commands:
+
+- `jcli build <job> --logs` — stream the triggered build's console while it runs.
+  `--logs` **implies `--wait`** (a fire-and-forget build has no build URL yet) and
+  replaces the stage-view lines; the exit code is still the build result (0 / 4).
+- `jcli status <job> <number> --logs` — show that build's console instead of the
+  stage snapshot. `--logs` on `status` is valid **only** at the build-id level
+  (job *and* number); for the latest build use `logs <job>` instead.
+
+Console output is raw text written to stdout, so `--json` has no effect on it.
+`logs` and `status --logs` are informational (exit 0 regardless of build result);
+a missing build is exit 3 and an auth failure exit 2.
+
 ### Commands
 
 | Command          | Description                                                       |
@@ -218,8 +250,9 @@ fallback described above apply, and `--json` emits a structured document.
 | `logout`         | Remove stored credentials for a profile (`--purge` also removes the profile config). |
 | `list [pattern]` | List cached jobs, optionally filtered (`--refresh` to re-crawl).  |
 | `get <job>`      | Show a job's details and parameters (live read).                  |
-| `build <job>`    | Trigger a build (`--param-<name>=val`, `--wait` to poll to completion, `--no-stages` to suppress stage-view lines). |
-| `status [job [number]]` | Show running builds (no args), a job's run state, or a build's stage status (`--wait` to follow a running build). |
+| `build <job>`    | Trigger a build (`--param-<name>=val`, `--wait` to poll to completion, `--no-stages` to suppress stage-view lines, `--logs` to stream the console). |
+| `status [job [number]]` | Show running builds (no args), a job's run state, or a build's stage status (`--wait` to follow, `--logs` for the build's console at the job+number level). |
+| `logs <job> [number]` | Print a build's console output — latest build (job only) or a specific number (`--wait` to follow live). |
 | `dump`           | Emit the full cached job map as formatted JSON (`--refresh` to re-crawl). |
 | `install-skill`  | Install the bundled Claude skill to `~/.claude/skills/jenkins-cli` (`--to` to override). |
 

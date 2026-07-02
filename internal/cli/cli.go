@@ -48,6 +48,8 @@ type jenkinsClient interface {
 	LastBuild(ctx context.Context, jobPath string) (jenkins.Build, bool, error)
 	BuildStatus(ctx context.Context, buildURL string) (jenkins.Build, error)
 	RunningBuilds(ctx context.Context) ([]jenkins.RunningBuild, error)
+	ConsoleText(ctx context.Context, buildURL string) (string, error)
+	ConsoleProgressive(ctx context.Context, buildURL string, start int64) (jenkins.ConsoleChunk, error)
 }
 
 // clientFactory builds a jenkinsClient for a resolved profile's url/username/token. It is a field
