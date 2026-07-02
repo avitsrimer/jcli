@@ -1,3 +1,7 @@
 .legacy/
 /jcli
 coverage.out
+
+# in-progress plans are local-only; only completed plans are tracked
+docs/plans/*
+!docs/plans/completed/
