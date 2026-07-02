@@ -303,6 +303,138 @@ func TestClient_StageView(t *testing.T) {
 	})
 }
 
+func TestClient_LastBuild(t *testing.T) {
+	t.Run("running job returns its latest build", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			assert.Equal(t, "/job/Logistics/api/json", r.URL.Path)
+			assert.Contains(t, r.URL.Query().Get("tree"), "lastBuild[number,url,building,result,timestamp]")
+			_, _ = w.Write([]byte(`{"lastBuild":{"number":42,"url":"https://jenkins/job/Logistics/42/",` +
+				`"building":true,"result":null,"timestamp":1700000000000}}`))
+		}))
+		defer srv.Close()
+
+		c := New(srv.URL, "alice", "tok", srv.Client())
+		b, ok, err := c.LastBuild(context.Background(), "/job/Logistics")
+		require.NoError(t, err)
+		require.True(t, ok)
+		assert.Equal(t, 42, b.Number)
+		assert.True(t, b.Building)
+		assert.Equal(t, "https://jenkins/job/Logistics/42/", b.URL)
+		assert.Equal(t, int64(1700000000000), b.Timestamp)
+	})
+
+	t.Run("never-built job reports ok=false", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte(`{"lastBuild":null}`))
+		}))
+		defer srv.Close()
+
+		c := New(srv.URL, "alice", "tok", srv.Client())
+		_, ok, err := c.LastBuild(context.Background(), "/job/Fresh")
+		require.NoError(t, err)
+		assert.False(t, ok)
+	})
+
+	t.Run("absent job surfaces ErrNotFound", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer srv.Close()
+
+		c := New(srv.URL, "alice", "tok", srv.Client())
+		_, _, err := c.LastBuild(context.Background(), "/job/Nope")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrNotFound)
+	})
+}
+
+func TestClient_BuildStatus(t *testing.T) {
+	t.Run("finished build reports result and timestamp", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			assert.Equal(t, "/job/Logistics/42/api/json", r.URL.Path)
+			assert.Contains(t, r.URL.Query().Get("tree"), "number,url,building,result,timestamp")
+			_, _ = w.Write([]byte(`{"number":42,"building":false,"result":"SUCCESS","timestamp":1700000000000}`))
+		}))
+		defer srv.Close()
+
+		c := New(srv.URL, "alice", "tok", srv.Client())
+		b, err := c.BuildStatus(context.Background(), srv.URL+"/job/Logistics/42/")
+		require.NoError(t, err)
+		assert.Equal(t, 42, b.Number)
+		assert.False(t, b.Building)
+		assert.Equal(t, "SUCCESS", b.Result)
+		assert.Equal(t, int64(1700000000000), b.Timestamp)
+	})
+
+	t.Run("absent build surfaces ErrNotFound", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer srv.Close()
+
+		c := New(srv.URL, "alice", "tok", srv.Client())
+		_, err := c.BuildStatus(context.Background(), srv.URL+"/job/Logistics/999/")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrNotFound)
+	})
+}
+
+func TestClient_RunningBuilds(t *testing.T) {
+	t.Run("collects executors, skips idle, dedupes preferring oneOff", func(t *testing.T) {
+		// a pipeline run appears both as a node-executor placeholder (no metadata) and as a
+		// flyweight oneOffExecutor (full metadata) at the same URL; a freestyle run appears once
+		// in a node executor; one executor is idle.
+		const body = `{"computer":[
+		  {
+		    "executors":[
+		      {"currentExecutable":{"number":0,"url":"https://jenkins/job/Pipe/7/","fullDisplayName":"","timestamp":0}},
+		      {"currentExecutable":{"number":3,"url":"https://jenkins/job/Free/3/","fullDisplayName":"Free #3","timestamp":1700000003000}},
+		      {"currentExecutable":null}
+		    ],
+		    "oneOffExecutors":[
+		      {"currentExecutable":{"number":7,"url":"https://jenkins/job/Pipe/7/","fullDisplayName":"Pipe #7","timestamp":1700000007000}}
+		    ]
+		  }
+		]}`
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			assert.Equal(t, "/computer/api/json", r.URL.Path)
+			assert.Contains(t, r.URL.Query().Get("tree"), "oneOffExecutors[currentExecutable")
+			_, _ = w.Write([]byte(body))
+		}))
+		defer srv.Close()
+
+		c := New(srv.URL, "alice", "tok", srv.Client())
+		builds, err := c.RunningBuilds(context.Background())
+		require.NoError(t, err)
+		require.Len(t, builds, 2)
+
+		byURL := map[string]RunningBuild{}
+		for _, b := range builds {
+			byURL[b.URL] = b
+		}
+		// the oneOff record won the dedupe for the pipeline URL.
+		pipe := byURL["https://jenkins/job/Pipe/7/"]
+		assert.Equal(t, 7, pipe.Number)
+		assert.Equal(t, "Pipe #7", pipe.Name)
+		assert.Equal(t, int64(1700000007000), pipe.Timestamp)
+
+		free := byURL["https://jenkins/job/Free/3/"]
+		assert.Equal(t, "Free #3", free.Name)
+	})
+
+	t.Run("no executors running yields empty", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte(`{"computer":[{"executors":[{"currentExecutable":null}],"oneOffExecutors":[]}]}`))
+		}))
+		defer srv.Close()
+
+		c := New(srv.URL, "alice", "tok", srv.Client())
+		builds, err := c.RunningBuilds(context.Background())
+		require.NoError(t, err)
+		assert.Empty(t, builds)
+	})
+}
+
 func TestClient_StatusMapping(t *testing.T) {
 	tests := []struct {
 		name    string

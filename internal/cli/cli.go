@@ -45,6 +45,9 @@ type jenkinsClient interface {
 	QueueItem(ctx context.Context, queueURL string) (jenkins.QueueItem, error)
 	BuildResult(ctx context.Context, buildURL string) (jenkins.BuildResult, error)
 	StageView(ctx context.Context, buildURL string) ([]jenkins.Stage, error)
+	LastBuild(ctx context.Context, jobPath string) (jenkins.Build, bool, error)
+	BuildStatus(ctx context.Context, buildURL string) (jenkins.Build, error)
+	RunningBuilds(ctx context.Context) ([]jenkins.RunningBuild, error)
 }
 
 // clientFactory builds a jenkinsClient for a resolved profile's url/username/token. It is a field
@@ -87,6 +90,19 @@ type app struct {
 	// can feed URL/username/token deterministically without a real TTY. nil falls back to a ttyPrompter
 	// over stdin/stderr.
 	promptFactory func() prompter
+
+	// now returns the current time for status elapsed calculations; it is injectable so tests get a
+	// deterministic clock. A nil field falls back to time.Now via clock().
+	now func() time.Time
+}
+
+// clock returns the app's current-time source, defaulting to time.Now when unset so status can
+// compute a build's elapsed duration deterministically under test.
+func (a *app) clock() time.Time {
+	if a.now != nil {
+		return a.now()
+	}
+	return time.Now()
 }
 
 // prompter returns the app's interactive prompter, defaulting to a ttyPrompter reading echoed lines

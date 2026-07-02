@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"sort"
 	"strings"
 	"time"
@@ -60,7 +61,7 @@ func (c *buildCmd) runBuild(name string) error {
 		return fmt.Errorf("load cache: %w", err)
 	}
 
-	job, err := c.resolveJob(client, m, prof, name)
+	job, err := c.app.resolveJob(client, m, prof, name)
 	if err != nil {
 		return err
 	}
@@ -93,12 +94,13 @@ func (c *buildCmd) runBuild(name string) error {
 
 // resolveJob looks up the job in the cache, doing exactly one crawl-then-retry on a miss (so a
 // freshly created job resolves without --refresh), mirroring get. A still-absent job is a
-// not-found error (exit 3) with close-name suggestions.
-func (c *buildCmd) resolveJob(client jenkinsClient, m *cache.Map, prof config.Profile, name string) (cache.Job, error) {
+// not-found error (exit 3) with close-name suggestions. It lives on app so build and status share
+// one resolution path.
+func (a *app) resolveJob(client jenkinsClient, m *cache.Map, prof config.Profile, name string) (cache.Job, error) {
 	if job, ok := m.Lookup(name); ok {
 		return job, nil
 	}
-	if err := c.app.crawlAndSave(m, client, prof); err != nil {
+	if err := a.crawlAndSave(m, client, prof); err != nil {
 		return cache.Job{}, err
 	}
 	job, ok := m.Lookup(name)
@@ -155,7 +157,7 @@ func (c *buildCmd) waitForBuild(client jenkinsClient, name, loc string) error {
 			fmt.Fprintf(c.app.stderr, "build %q started: %s\n", name, buildURL)
 			break
 		}
-		if err := c.sleepPoll(ctx); err != nil {
+		if err := c.app.sleepPoll(ctx); err != nil {
 			return fmt.Errorf("waiting for build %q to start: %w", name, err)
 		}
 	}
@@ -176,7 +178,7 @@ func (c *buildCmd) waitForBuild(client jenkinsClient, name, loc string) error {
 		if !res.Building && res.Result != "" {
 			return c.reportResult(name, buildURL, res.Result)
 		}
-		if err := c.sleepPoll(ctx); err != nil {
+		if err := c.app.sleepPoll(ctx); err != nil {
 			return fmt.Errorf("waiting for build %q to finish: %w", name, err)
 		}
 	}
@@ -212,6 +214,14 @@ func (c *buildCmd) logStages(ctx context.Context, client jenkinsClient, buildURL
 	}
 	// a later successful read clears the deduped error so a subsequent failure logs again.
 	*lastStageErr = ""
+	printStageTransitions(c.app.stderr, stages, seen)
+}
+
+// printStageTransitions writes one line per stage whose status changed since the last poll,
+// updating seen in place. NOT_EXECUTED/PAUSED/unknown statuses have no glyph and emit no line; the
+// still-running IN_PROGRESS line omits a duration while every terminal status carries one. Shared
+// by build --wait and status --wait so both stream stage progress identically.
+func printStageTransitions(w io.Writer, stages []jenkins.Stage, seen map[string]string) {
 	for _, st := range stages {
 		if seen[st.Name] == st.Status {
 			continue
@@ -219,15 +229,13 @@ func (c *buildCmd) logStages(ctx context.Context, client jenkinsClient, buildURL
 		seen[st.Name] = st.Status
 		glyph, ok := stageGlyphs[st.Status]
 		if !ok {
-			// NOT_EXECUTED, PAUSED, or any unknown status: no transition line.
 			continue
 		}
-		// only the still-running IN_PROGRESS line omits a duration; every terminal status carries one.
 		if st.Status == "IN_PROGRESS" {
-			fmt.Fprintf(c.app.stderr, "%s %s\n", glyph, st.Name)
+			fmt.Fprintf(w, "%s %s\n", glyph, st.Name)
 			continue
 		}
-		fmt.Fprintf(c.app.stderr, "%s %s (%s)\n", glyph, st.Name, humanizeDuration(st.DurationMillis))
+		fmt.Fprintf(w, "%s %s (%s)\n", glyph, st.Name, humanizeDuration(st.DurationMillis))
 	}
 }
 
@@ -247,13 +255,13 @@ func humanizeDuration(ms int64) string {
 
 // sleepPoll waits one poll interval or returns the context error if the overall --wait deadline
 // elapses first, so a build stuck in the queue or hung mid-run surfaces a timeout instead of
-// hanging forever.
-func (c *buildCmd) sleepPoll(ctx context.Context) error {
-	t := time.NewTimer(c.app.pollEvery())
+// hanging forever. It lives on app so both build and status --wait share one poll cadence.
+func (a *app) sleepPoll(ctx context.Context) error {
+	t := time.NewTimer(a.pollEvery())
 	defer t.Stop()
 	select {
 	case <-ctx.Done():
-		return fmt.Errorf("--wait timed out after %s: %w", c.app.waitEvery(), ctx.Err())
+		return fmt.Errorf("--wait timed out after %s: %w", a.waitEvery(), ctx.Err())
 	case <-t.C:
 		return nil
 	}

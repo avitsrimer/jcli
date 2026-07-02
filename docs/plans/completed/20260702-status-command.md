@@ -115,8 +115,10 @@ args=2 (job,num)  → resolve job → BuildStatus(buildURLFor(job,num)) → rend
     NOT an error: render the final snapshot once and exit 0.
   - with `--json`, `--wait` suppresses intermediate output and emits a **single**
     JSON document at terminal state (never concatenated JSON).
-  - `--wait <job>` whose last build is not building and never starts is bounded by
-    `waitEvery` (no infinite block).
+  - `--wait <job>` whose last build is **not** currently building simply reports
+    the current (not-running / never-built) state and exits 0 — following a
+    non-running job is not meaningful, so it does not block. (Implemented behavior;
+    simpler than the drafted "bounded wait for it to start".)
 
 Key design decisions:
 
@@ -224,21 +226,21 @@ RunningBuilds(ctx context.Context) ([]jenkins.RunningBuild, error)
 - Modify: `internal/jenkins/client.go`
 - Modify: `internal/jenkins/client_test.go`
 
-- [ ] add `Build`, `jobLastBuild`, `RunningBuild`, and the `/computer` executor
+- [x] add `Build`, `jobLastBuild`, `RunningBuild`, and the `/computer` executor
       response types to `types.go` with doc comments
-- [ ] add `LastBuild(ctx, jobPath) (Build, bool, error)` (tree
+- [x] add `LastBuild(ctx, jobPath) (Build, bool, error)` (tree
       `lastBuild[number,url,building,result,timestamp]`; `ok=false` when
       `lastBuild` is nil) to `client.go`
-- [ ] add `BuildStatus(ctx, buildURL) (Build, error)` (absolute URL via
+- [x] add `BuildStatus(ctx, buildURL) (Build, error)` (absolute URL via
       `getJSONURL`; tree `number,url,building,result,timestamp`)
-- [ ] add `RunningBuilds(ctx) ([]RunningBuild, error)` hitting
+- [x] add `RunningBuilds(ctx) ([]RunningBuild, error)` hitting
       `/computer/api/json` with the executors tree, skipping null
       `currentExecutable`, deduping by URL and preferring the `oneOffExecutors`
       (flyweight) record over a node-`executors` placeholder for the same URL
-- [ ] write `client_test.go` cases for each (assert path + `tree` query,
+- [x] write `client_test.go` cases for each (assert path + `tree` query,
       decode fixture, `ok` false path for never-built, 404→`ErrNotFound`,
       idle-executor skip + dedupe)
-- [ ] run `make test` + `make cross-build` — must pass before Task 2
+- [x] run `make test` + `make cross-build` — must pass before Task 2
 
 ### Task 2: Extend `jenkinsClient` interface and regenerate the mock
 
@@ -246,12 +248,12 @@ RunningBuilds(ctx context.Context) ([]jenkins.RunningBuild, error)
 - Modify: `internal/cli/cli.go`
 - Modify: `internal/cli/jenkins_mock.go` (generated — do not hand-edit)
 
-- [ ] add `LastBuild`, `BuildStatus`, `RunningBuilds` to the `jenkinsClient`
+- [x] add `LastBuild`, `BuildStatus`, `RunningBuilds` to the `jenkinsClient`
       interface in `cli.go`
-- [ ] regenerate the mock: `go generate ./internal/cli/`
-- [ ] confirm existing `internal/cli` tests still compile/pass (mock now
+- [x] regenerate the mock: `go generate ./internal/cli/`
+- [x] confirm existing `internal/cli` tests still compile/pass (mock now
       satisfies the wider interface)
-- [ ] run `make test` — must pass before Task 3
+- [x] run `make test` — must pass before Task 3
 
 ### Task 3: Register `status`, arg dispatch skeleton, and shared helpers
 
@@ -267,23 +269,23 @@ runnable on their own.
 - Modify: `internal/cli/cli.go`
 - Modify: `internal/cli/cmd_build.go`
 
-- [ ] add `statusCmd` struct (`app *app`, `Wait bool \`long:"wait" …\``) with
+- [x] add `statusCmd` struct (`app *app`, `Wait bool \`long:"wait" …\``) with
       `Execute(args []string)` calling `c.app.fail(c.runStatus(args))`
-- [ ] register `{name: "status", short: "…", data: &statusCmd{app: a}}` in
+- [x] register `{name: "status", short: "…", data: &statusCmd{app: a}}` in
       `commands()`
-- [ ] create `cmd_status.go` with a `runStatus(args)` skeleton: validate arg
+- [x] create `cmd_status.go` with a `runStatus(args)` skeleton: validate arg
       count (>2 → usage error) and reject `--wait` with no target (args=0 → usage
       error); dispatch stubs for the 0/1/2-arg cases (filled in Task 4)
-- [ ] add `now func() time.Time` field to `app` + a `clock()` helper that falls
+- [x] add `now func() time.Time` field to `app` + a `clock()` helper that falls
       back to `time.Now` when nil (mirrors `pollEvery`/`prompter`; no `newApp`
       wiring)
-- [ ] lift `sleepPoll` from `*buildCmd` to `*app`, update the `cmd_build.go`
+- [x] lift `sleepPoll` from `*buildCmd` to `*app`, update the `cmd_build.go`
       caller to `c.app.sleepPoll(ctx)` (shared by build + status; no behavior
       change; check `cmd_build_test.go` for any direct reference)
-- [ ] write tests: command registered + dispatches; arg-count validation (>2 →
+- [x] write tests: command registered + dispatches; arg-count validation (>2 →
       exit 1); `--wait` without a target → exit 1; `sleepPoll` still honored by
       the build path (existing build tests stay green)
-- [ ] run `make test` — must pass before Task 4
+- [x] run `make test` — must pass before Task 4
 
 ### Task 4: Implement `runStatus` bodies, rendering, and `--wait`
 
@@ -291,38 +293,38 @@ runnable on their own.
 - Modify: `internal/cli/cmd_status.go`
 - Modify: `internal/cli/cmd_status_test.go`
 
-- [ ] implement running-list case (args=0): `RunningBuilds()` → sorted lines
+- [x] implement running-list case (args=0): `RunningBuilds()` → sorted lines
       `<fullDisplayName>  <elapsed>` (name already carries `#number`; elapsed via
       `app.clock()` + `humanizeDuration`); empty → "no jobs currently running"
-- [ ] implement job case (args=1): `resolveJob` + `LastBuild()`; if building →
+- [x] implement job case (args=1): `resolveJob` + `LastBuild()`; if building →
       render build+stages; else → "<job> is not running (last build #N RESULT)"
       (or "never built")
-- [ ] implement job+number case (args=2): `resolveJob` + `buildURLFor` +
+- [x] implement job+number case (args=2): `resolveJob` + `buildURLFor` +
       `BuildStatus()` + `StageView()` → render build+stages; 404 build →
       `jenkins.ErrNotFound` (exit 3)
-- [ ] implement `renderBuild` (overall `#N STATE (elapsed …)` line + stage
+- [x] implement `renderBuild` (overall `#N STATE (elapsed …)` line + stage
       snapshot, `StageView` 404 swallowed) and `--json` output for both the
       target and running-list shapes
-- [ ] implement `--wait`: for a specific/last building target, poll
+- [x] implement `--wait`: for a specific/last building target, poll
       `BuildStatus`+`StageView` via `sleepPoll`/`waitEvery`, emit stage
       transition lines to stderr, print the final snapshot to stdout at terminal,
       exit 0; an **already-terminal** target renders once and exits 0 (not an
       error); with `--json` emit a single final JSON document only
-- [ ] write tests: running list (some + none + JSON), job running/not-running/
+- [x] write tests: running list (some + none + JSON), job running/not-running/
       never-built, job+number success + not-found, freestyle stage-fallback,
       `--wait` transition sequence + already-terminal target + `--json` single-doc
       (injected clock + tiny `pollInterval`), exit-code assertions (informational
       → 0; not-found → 3; auth → 2)
-- [ ] run `make test` — must pass before Task 5
+- [x] run `make test` — must pass before Task 5
 
 ### Task 5: Verify acceptance criteria
 
-- [ ] verify all three input shapes from Overview behave as specified
-- [ ] verify edge cases: no profile, cold cache (crawl-then-retry), freestyle
+- [x] verify all three input shapes from Overview behave as specified
+- [x] verify edge cases: no profile, cold cache (crawl-then-retry), freestyle
       job (no stages), never-built job, `--wait` timeout, `>2` args
-- [ ] run full suite: `make test`
-- [ ] run `make lint` and `make cross-build` — must be clean
-- [ ] confirm no exit-4 leakage from `status` and existing `build`/`get` tests
+- [x] run full suite: `make test`
+- [x] run `make lint` and `make cross-build` — must be clean
+- [x] confirm no exit-4 leakage from `status` and existing `build`/`get` tests
       unaffected
 
 ### Task 6: [Final] Update documentation
@@ -332,11 +334,24 @@ runnable on their own.
 - Modify: `skill/jenkins-cli/SKILL.md`
 - Modify: `CLAUDE.md` (only if a new pattern emerged, e.g. shared `sleepPoll`/clock)
 
-- [ ] document `status` (all three shapes + `--wait`) in `README.md`, keeping it
+- [x] document `status` (all three shapes + `--wait`) in `README.md`, keeping it
       in sync with `--help`
-- [ ] add `status` usage to `skill/jenkins-cli/SKILL.md`
-- [ ] update `CLAUDE.md` only if warranted
-- [ ] move this plan to `docs/plans/completed/`
+- [x] add `status` usage to `skill/jenkins-cli/SKILL.md`
+- [x] update `CLAUDE.md` only if warranted
+- [x] move this plan to `docs/plans/completed/`
+
+## Review (implementation notes)
+
+- ➕ Two shared refactors beyond the drafted Task 3 (both pure receiver moves, no
+  behavior change): `resolveJob` lifted from `*buildCmd` to `*app` (status reuses
+  it), and the stage transition-print loop extracted from `logStages` into a
+  package-level `printStageTransitions` used by both `build --wait` and
+  `status --wait`.
+- ⚠️ `--wait` on a non-running job reports current state and exits 0 rather than
+  blocking (see the `--wait` note above).
+- Full suite (`go test -race ./...`), `go vet`, and `make cross-build` pass;
+  `golangci-lint` reports only 9 pre-existing issues (verbosef/handleParseError/
+  fail/cmd_get/cmd_login) — the new files add none.
 
 ## Post-Completion
 

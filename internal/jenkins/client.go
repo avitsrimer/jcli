@@ -154,6 +154,70 @@ func (c *Client) StageView(ctx context.Context, buildURL string) ([]Stage, error
 	return view.Stages, nil
 }
 
+// LastBuild reads a job's most recent build summary addressed by its Jenkins path. ok is false
+// when the job has never built (lastBuild is null). ErrNotFound surfaces when the job is absent.
+func (c *Client) LastBuild(ctx context.Context, jobPath string) (Build, bool, error) {
+	const tree = "lastBuild[number,url,building,result,timestamp]"
+	var detail jobLastBuild
+	path := strings.TrimRight(jobPath, "/") + "/api/json"
+	if err := c.getJSON(ctx, path, url.Values{"tree": {tree}}, &detail); err != nil {
+		return Build{}, false, fmt.Errorf("last build %s: %w", jobPath, err)
+	}
+	if detail.LastBuild == nil {
+		return Build{}, false, nil
+	}
+	return *detail.LastBuild, true, nil
+}
+
+// BuildStatus reads a single build's status by its absolute URL, returning its number, building
+// flag, terminal result, and start timestamp. ErrNotFound surfaces when the build is absent.
+func (c *Client) BuildStatus(ctx context.Context, buildURL string) (Build, error) {
+	const tree = "number,url,building,result,timestamp"
+	var b Build
+	endpoint := strings.TrimRight(buildURL, "/") + "/api/json?" + url.Values{"tree": {tree}}.Encode()
+	if err := c.getJSONURL(ctx, endpoint, &b); err != nil {
+		return Build{}, fmt.Errorf("build status %s: %w", buildURL, err)
+	}
+	return b, nil
+}
+
+// RunningBuilds lists every currently-executing build across all nodes via /computer/api/json,
+// reading both the per-stage executors and the flyweight oneOffExecutors. Idle executors (nil
+// currentExecutable) are skipped and entries are deduped by build URL, preferring the
+// oneOffExecutors record whose number/timestamp/fullDisplayName are reliable for pipeline runs.
+func (c *Client) RunningBuilds(ctx context.Context) ([]RunningBuild, error) {
+	const tree = "computer[executors[currentExecutable[number,url,fullDisplayName,timestamp]]," +
+		"oneOffExecutors[currentExecutable[number,url,fullDisplayName,timestamp]]]"
+	var resp computerResponse
+	if err := c.getJSON(ctx, "/computer/api/json", url.Values{"tree": {tree}}, &resp); err != nil {
+		return nil, fmt.Errorf("running builds: %w", err)
+	}
+
+	seen := map[string]int{}
+	var out []RunningBuild
+	// oneOffExecutors first so a flyweight record wins the dedupe over a node-executor placeholder.
+	add := func(execs []executor) {
+		for _, e := range execs {
+			rb := e.CurrentExecutable
+			if rb == nil || rb.URL == "" {
+				continue
+			}
+			if _, dup := seen[rb.URL]; dup {
+				continue
+			}
+			seen[rb.URL] = len(out)
+			out = append(out, *rb)
+		}
+	}
+	for _, node := range resp.Computer {
+		add(node.OneOffExecutors)
+	}
+	for _, node := range resp.Computer {
+		add(node.Executors)
+	}
+	return out, nil
+}
+
 // getJSON performs an authenticated GET against a baseURL-relative path, maps status codes to
 // typed errors, and decodes a 200 body into out. query may be nil.
 func (c *Client) getJSON(ctx context.Context, path string, query url.Values, out any) error {

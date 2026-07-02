@@ -18,6 +18,7 @@ func (a *app) commands() []command {
 		{name: "list", short: "list jobs from the cached map", data: &listCmd{app: a}},
 		{name: "get", short: "show job details and params", data: &getCmd{app: a}},
 		{name: "build", short: "trigger a parameterized build", data: &buildCmd{app: a}},
+		{name: "status", short: "show running jobs or a build's stage status", data: &statusCmd{app: a}},
 		{name: "dump", short: "emit the full cached job map as JSON", data: &dumpCmd{app: a}},
 		{name: "install-skill", short: "install the jcli Claude skill", data: &installSkillCmd{app: a}},
 	}
@@ -99,6 +100,18 @@ func (c *buildCmd) Execute(args []string) error {
 	}
 	return c.app.fail(c.runBuild(name))
 }
+
+// statusCmd shows run state. With no positional it lists currently running builds; with a job
+// name it reports whether the job is running (and the running build's stages); with a job name and
+// a build number it shows that build's stage status. --wait follows a running/target build to
+// terminal state.
+type statusCmd struct {
+	app  *app
+	Wait bool `long:"wait" description:"follow the target build's stage status to completion"`
+}
+
+// Execute implements flags.Commander. Positionals are [job [number]]; none means "running now".
+func (c *statusCmd) Execute(args []string) error { return c.app.fail(c.runStatus(args)) }
 
 // dumpCmd emits the full cached job map as formatted JSON; --refresh rebuilds via a crawl first.
 type dumpCmd struct {

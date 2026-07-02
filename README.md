@@ -16,6 +16,8 @@ named **profiles**.
   optional `--wait` to poll a build to completion.
 - List jobs and inspect a job's parameter definitions before running them, from
   a per-profile cached job map (crawled on first use / `--refresh`).
+- Check run state with `status` — list the builds running right now, see whether
+  a job is running, or follow a build's pipeline stages to completion (`--wait`).
 - **macOS Keychain integration** — API tokens are stored in and read from the
   login Keychain, authorized by the keychain ACL bound to the signed `jcli` binary
   and served through a short-lived in-memory agent so repeated commands do not
@@ -129,6 +131,18 @@ jcli build <job-name> --param-BRANCH=main --wait
 # wait, but suppress the live pipeline stage-view progress lines
 jcli build <job-name> --wait --no-stages
 
+# show what is running right now across all nodes (or "no jobs currently running")
+jcli status
+
+# is a job running? if so, show its running build's stages
+jcli status <job-name>
+
+# show a specific build's stage status
+jcli status <job-name> 42
+
+# follow a running build's stages to completion
+jcli status <job-name> --wait
+
 # emit the full cached job map as formatted JSON
 jcli dump
 
@@ -174,6 +188,25 @@ Pipeline job (the `wfapi/describe` endpoint). Freestyle jobs, or a Jenkins witho
 the plugin, simply show no stages — the fetch falls back silently, the wait still
 works, and the build result (and exit code) is unaffected.
 
+### `status`
+
+`status` reports run state and takes three shapes:
+
+- `jcli status` — a short list of the builds **currently executing** across all
+  nodes (via the `/computer` executor snapshot), or `no jobs currently running`.
+  Queued-but-not-yet-started items are not listed.
+- `jcli status <job>` — resolves the job and reports whether its latest build is
+  running; when running, it renders that build's stage snapshot.
+- `jcli status <job> <number>` — renders the stage status of that specific build.
+
+With `--wait` (valid only with a job/build target), `status` follows a running
+build to completion, streaming the same stage transition lines to stderr as
+`build --wait`, then prints the final snapshot. An already-finished target is
+rendered once (not an error). `status` is informational: it reports a `FAILURE`
+build as normal output and still exits `0`; only a missing job/build (exit `3`)
+or auth failure (exit `2`) is non-zero. The same stage glyphs and stage-view
+fallback described above apply, and `--json` emits a structured document.
+
 ### Commands
 
 | Command          | Description                                                       |
@@ -186,6 +219,7 @@ works, and the build result (and exit code) is unaffected.
 | `list [pattern]` | List cached jobs, optionally filtered (`--refresh` to re-crawl).  |
 | `get <job>`      | Show a job's details and parameters (live read).                  |
 | `build <job>`    | Trigger a build (`--param-<name>=val`, `--wait` to poll to completion, `--no-stages` to suppress stage-view lines). |
+| `status [job [number]]` | Show running builds (no args), a job's run state, or a build's stage status (`--wait` to follow a running build). |
 | `dump`           | Emit the full cached job map as formatted JSON (`--refresh` to re-crawl). |
 | `install-skill`  | Install the bundled Claude skill to `~/.claude/skills/jenkins-cli` (`--to` to override). |
 

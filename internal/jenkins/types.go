@@ -108,3 +108,45 @@ type Stage struct {
 type stageViewResponse struct {
 	Stages []Stage `json:"stages"`
 }
+
+// Build is a build's status detail read either from <buildURL>/api/json or from a job's
+// lastBuild. Building is true while the run is in progress; Result holds the terminal outcome
+// once finished. Timestamp is the build's start time in epoch milliseconds (used for elapsed).
+type Build struct {
+	Number    int    `json:"number"`
+	URL       string `json:"url"`
+	Building  bool   `json:"building"`
+	Result    string `json:"result"`
+	Timestamp int64  `json:"timestamp"`
+}
+
+// jobLastBuild is the shape of GET <job>/api/json?tree=lastBuild[...]; LastBuild is nil for a
+// job that has never run.
+type jobLastBuild struct {
+	LastBuild *Build `json:"lastBuild"`
+}
+
+// RunningBuild is one currently-executing build reported by /computer. Name is the executable's
+// fullDisplayName, which ALREADY includes the build number (e.g. "Folder » MyJob #42") — render
+// it verbatim and do not also print Number.
+type RunningBuild struct {
+	Name      string `json:"fullDisplayName"`
+	Number    int    `json:"number"`
+	URL       string `json:"url"`
+	Timestamp int64  `json:"timestamp"`
+}
+
+// computerResponse is the shape of GET /computer/api/json: one entry per node. Each node lists
+// its per-stage executors and its flyweight oneOffExecutors; an idle executor has a nil
+// currentExecutable.
+type computerResponse struct {
+	Computer []struct {
+		Executors       []executor `json:"executors"`
+		OneOffExecutors []executor `json:"oneOffExecutors"`
+	} `json:"computer"`
+}
+
+// executor wraps the run an executor is currently carrying; CurrentExecutable is nil when idle.
+type executor struct {
+	CurrentExecutable *RunningBuild `json:"currentExecutable"`
+}

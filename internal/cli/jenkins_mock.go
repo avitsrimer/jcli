@@ -25,14 +25,23 @@ var _ jenkinsClient = &jenkinsClientMock{}
 //			BuildResultFunc: func(ctx context.Context, buildURL string) (jenkins.BuildResult, error) {
 //				panic("mock out the BuildResult method")
 //			},
+//			BuildStatusFunc: func(ctx context.Context, buildURL string) (jenkins.Build, error) {
+//				panic("mock out the BuildStatus method")
+//			},
 //			JobParamsFunc: func(ctx context.Context, jobPath string) ([]jenkins.Param, error) {
 //				panic("mock out the JobParams method")
 //			},
 //			JobsFunc: func(ctx context.Context) ([]jenkins.Job, error) {
 //				panic("mock out the Jobs method")
 //			},
+//			LastBuildFunc: func(ctx context.Context, jobPath string) (jenkins.Build, bool, error) {
+//				panic("mock out the LastBuild method")
+//			},
 //			QueueItemFunc: func(ctx context.Context, queueURL string) (jenkins.QueueItem, error) {
 //				panic("mock out the QueueItem method")
+//			},
+//			RunningBuildsFunc: func(ctx context.Context) ([]jenkins.RunningBuild, error) {
+//				panic("mock out the RunningBuilds method")
 //			},
 //			StageViewFunc: func(ctx context.Context, buildURL string) ([]jenkins.Stage, error) {
 //				panic("mock out the StageView method")
@@ -53,14 +62,23 @@ type jenkinsClientMock struct {
 	// BuildResultFunc mocks the BuildResult method.
 	BuildResultFunc func(ctx context.Context, buildURL string) (jenkins.BuildResult, error)
 
+	// BuildStatusFunc mocks the BuildStatus method.
+	BuildStatusFunc func(ctx context.Context, buildURL string) (jenkins.Build, error)
+
 	// JobParamsFunc mocks the JobParams method.
 	JobParamsFunc func(ctx context.Context, jobPath string) ([]jenkins.Param, error)
 
 	// JobsFunc mocks the Jobs method.
 	JobsFunc func(ctx context.Context) ([]jenkins.Job, error)
 
+	// LastBuildFunc mocks the LastBuild method.
+	LastBuildFunc func(ctx context.Context, jobPath string) (jenkins.Build, bool, error)
+
 	// QueueItemFunc mocks the QueueItem method.
 	QueueItemFunc func(ctx context.Context, queueURL string) (jenkins.QueueItem, error)
+
+	// RunningBuildsFunc mocks the RunningBuilds method.
+	RunningBuildsFunc func(ctx context.Context) ([]jenkins.RunningBuild, error)
 
 	// StageViewFunc mocks the StageView method.
 	StageViewFunc func(ctx context.Context, buildURL string) ([]jenkins.Stage, error)
@@ -86,6 +104,13 @@ type jenkinsClientMock struct {
 			// BuildURL is the buildURL argument value.
 			BuildURL string
 		}
+		// BuildStatus holds details about calls to the BuildStatus method.
+		BuildStatus []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// BuildURL is the buildURL argument value.
+			BuildURL string
+		}
 		// JobParams holds details about calls to the JobParams method.
 		JobParams []struct {
 			// Ctx is the ctx argument value.
@@ -98,12 +123,24 @@ type jenkinsClientMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 		}
+		// LastBuild holds details about calls to the LastBuild method.
+		LastBuild []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// JobPath is the jobPath argument value.
+			JobPath string
+		}
 		// QueueItem holds details about calls to the QueueItem method.
 		QueueItem []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// QueueURL is the queueURL argument value.
 			QueueURL string
+		}
+		// RunningBuilds holds details about calls to the RunningBuilds method.
+		RunningBuilds []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
 		}
 		// StageView holds details about calls to the StageView method.
 		StageView []struct {
@@ -118,13 +155,16 @@ type jenkinsClientMock struct {
 			Ctx context.Context
 		}
 	}
-	lockBuild       sync.RWMutex
-	lockBuildResult sync.RWMutex
-	lockJobParams   sync.RWMutex
-	lockJobs        sync.RWMutex
-	lockQueueItem   sync.RWMutex
-	lockStageView   sync.RWMutex
-	lockWhoAmI      sync.RWMutex
+	lockBuild         sync.RWMutex
+	lockBuildResult   sync.RWMutex
+	lockBuildStatus   sync.RWMutex
+	lockJobParams     sync.RWMutex
+	lockJobs          sync.RWMutex
+	lockLastBuild     sync.RWMutex
+	lockQueueItem     sync.RWMutex
+	lockRunningBuilds sync.RWMutex
+	lockStageView     sync.RWMutex
+	lockWhoAmI        sync.RWMutex
 }
 
 // Build calls BuildFunc.
@@ -203,6 +243,42 @@ func (mock *jenkinsClientMock) BuildResultCalls() []struct {
 	return calls
 }
 
+// BuildStatus calls BuildStatusFunc.
+func (mock *jenkinsClientMock) BuildStatus(ctx context.Context, buildURL string) (jenkins.Build, error) {
+	if mock.BuildStatusFunc == nil {
+		panic("jenkinsClientMock.BuildStatusFunc: method is nil but jenkinsClient.BuildStatus was just called")
+	}
+	callInfo := struct {
+		Ctx      context.Context
+		BuildURL string
+	}{
+		Ctx:      ctx,
+		BuildURL: buildURL,
+	}
+	mock.lockBuildStatus.Lock()
+	mock.calls.BuildStatus = append(mock.calls.BuildStatus, callInfo)
+	mock.lockBuildStatus.Unlock()
+	return mock.BuildStatusFunc(ctx, buildURL)
+}
+
+// BuildStatusCalls gets all the calls that were made to BuildStatus.
+// Check the length with:
+//
+//	len(mockedjenkinsClient.BuildStatusCalls())
+func (mock *jenkinsClientMock) BuildStatusCalls() []struct {
+	Ctx      context.Context
+	BuildURL string
+} {
+	var calls []struct {
+		Ctx      context.Context
+		BuildURL string
+	}
+	mock.lockBuildStatus.RLock()
+	calls = mock.calls.BuildStatus
+	mock.lockBuildStatus.RUnlock()
+	return calls
+}
+
 // JobParams calls JobParamsFunc.
 func (mock *jenkinsClientMock) JobParams(ctx context.Context, jobPath string) ([]jenkins.Param, error) {
 	if mock.JobParamsFunc == nil {
@@ -271,6 +347,42 @@ func (mock *jenkinsClientMock) JobsCalls() []struct {
 	return calls
 }
 
+// LastBuild calls LastBuildFunc.
+func (mock *jenkinsClientMock) LastBuild(ctx context.Context, jobPath string) (jenkins.Build, bool, error) {
+	if mock.LastBuildFunc == nil {
+		panic("jenkinsClientMock.LastBuildFunc: method is nil but jenkinsClient.LastBuild was just called")
+	}
+	callInfo := struct {
+		Ctx     context.Context
+		JobPath string
+	}{
+		Ctx:     ctx,
+		JobPath: jobPath,
+	}
+	mock.lockLastBuild.Lock()
+	mock.calls.LastBuild = append(mock.calls.LastBuild, callInfo)
+	mock.lockLastBuild.Unlock()
+	return mock.LastBuildFunc(ctx, jobPath)
+}
+
+// LastBuildCalls gets all the calls that were made to LastBuild.
+// Check the length with:
+//
+//	len(mockedjenkinsClient.LastBuildCalls())
+func (mock *jenkinsClientMock) LastBuildCalls() []struct {
+	Ctx     context.Context
+	JobPath string
+} {
+	var calls []struct {
+		Ctx     context.Context
+		JobPath string
+	}
+	mock.lockLastBuild.RLock()
+	calls = mock.calls.LastBuild
+	mock.lockLastBuild.RUnlock()
+	return calls
+}
+
 // QueueItem calls QueueItemFunc.
 func (mock *jenkinsClientMock) QueueItem(ctx context.Context, queueURL string) (jenkins.QueueItem, error) {
 	if mock.QueueItemFunc == nil {
@@ -304,6 +416,38 @@ func (mock *jenkinsClientMock) QueueItemCalls() []struct {
 	mock.lockQueueItem.RLock()
 	calls = mock.calls.QueueItem
 	mock.lockQueueItem.RUnlock()
+	return calls
+}
+
+// RunningBuilds calls RunningBuildsFunc.
+func (mock *jenkinsClientMock) RunningBuilds(ctx context.Context) ([]jenkins.RunningBuild, error) {
+	if mock.RunningBuildsFunc == nil {
+		panic("jenkinsClientMock.RunningBuildsFunc: method is nil but jenkinsClient.RunningBuilds was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+	}{
+		Ctx: ctx,
+	}
+	mock.lockRunningBuilds.Lock()
+	mock.calls.RunningBuilds = append(mock.calls.RunningBuilds, callInfo)
+	mock.lockRunningBuilds.Unlock()
+	return mock.RunningBuildsFunc(ctx)
+}
+
+// RunningBuildsCalls gets all the calls that were made to RunningBuilds.
+// Check the length with:
+//
+//	len(mockedjenkinsClient.RunningBuildsCalls())
+func (mock *jenkinsClientMock) RunningBuildsCalls() []struct {
+	Ctx context.Context
+} {
+	var calls []struct {
+		Ctx context.Context
+	}
+	mock.lockRunningBuilds.RLock()
+	calls = mock.calls.RunningBuilds
+	mock.lockRunningBuilds.RUnlock()
 	return calls
 }
 
