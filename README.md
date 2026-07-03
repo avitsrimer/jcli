@@ -282,7 +282,7 @@ make cross-build # prove the repo still builds on non-darwin (keychain stub)
 `make lint` needs [`golangci-lint`](https://golangci-lint.run) v2 (`brew install
 golangci-lint`). CI (`.github/workflows/ci.yml`) runs the test + lint on
 `macos-latest` (the cgo keychain code only builds on darwin), a cross-build on
-`ubuntu-latest`, and `shellcheck` over `scripts/`.
+`ubuntu-latest`, and `shellcheck` over any repo shell scripts.
 
 There is no managed code-signing certificate: `jcli` relies on the default ad-hoc
 code identity that `go build` produces. The token lives in the login Keychain, and

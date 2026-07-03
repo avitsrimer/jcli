@@ -64,7 +64,7 @@ build.
 GitHub Actions (`.github/workflows/ci.yml`) runs three jobs: `build` on
 `macos-latest` (`make test` + `golangci-lint`, because the cgo keychain code only
 compiles on darwin), `cross-build` on `ubuntu-latest` (`make cross-build`), and
-`shellcheck` over `scripts/`. Release stays manual — the keychain ACL is bound to
+`shellcheck` over any repo shell scripts. Release stays manual — the keychain ACL is bound to
 the binary's local ad-hoc code identity, which CI cannot reproduce.
 
 `.golangci.yml` (golangci-lint v2, derived from `umputun/revdiff`) drives both CI
