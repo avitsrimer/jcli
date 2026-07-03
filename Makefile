@@ -27,7 +27,7 @@ test:
 	$(GO) test -race ./...
 
 lint:
-	golangci-lint run
+	GOTOOLCHAIN=local golangci-lint run
 
 fmt:
 	gofmt -s -w .

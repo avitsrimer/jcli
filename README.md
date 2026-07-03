@@ -270,11 +270,18 @@ a missing build is exit 3 and an auth failure exit 2.
 
 ```bash
 make build       # build ./jcli
+make test        # go test -race ./...
+make lint        # golangci-lint run (config: .golangci.yml)
 make cert        # create/reuse the self-signed code-signing identity (idempotent)
 make sign        # codesign --options runtime; prints the designated requirement
 make install     # sign + install to ~/bin (INSTALL_DIR=/usr/local/bin to override)
 make cross-build # prove the repo still builds on non-darwin (keychain stub)
 ```
+
+`make lint` needs [`golangci-lint`](https://golangci-lint.run) v2 (`brew install
+golangci-lint`). CI (`.github/workflows/ci.yml`) runs the test + lint on
+`macos-latest` (the cgo keychain code only builds on darwin), a cross-build on
+`ubuntu-latest`, and `shellcheck` over `scripts/`.
 
 The Keychain ACL trust — which lets the signed `jcli` read its token silently — is
 bound to the signing identity's **designated requirement**, derived from the

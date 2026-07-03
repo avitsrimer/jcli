@@ -25,7 +25,7 @@ type Job struct {
 	Class           string          `json:"class"`
 	Buildable       bool            `json:"buildable"`
 	Params          []jenkins.Param `json:"params,omitempty"`
-	ParamsFetchedAt time.Time       `json:"params_fetched_at,omitempty"`
+	ParamsFetchedAt time.Time       `json:"params_fetched_at,omitempty"` //nolint:modernize // omitzero would drop zero times and change the on-disk cache format
 }
 
 // Map is the on-disk document: when the list was last crawled, the server URL it came from,
@@ -62,7 +62,7 @@ func Load(profile string) (*Map, error) {
 
 // loadFrom is the testable core of Load, reading an explicit path.
 func loadFrom(path string) (*Map, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // path is jcli's own per-profile cache file, not user input
 	if errors.Is(err, os.ErrNotExist) {
 		return &Map{Jobs: map[string]Job{}}, nil
 	}

@@ -277,10 +277,10 @@ func TestStatus_Logs(t *testing.T) {
 	})
 
 	t.Run("--logs with --wait follows the console", func(t *testing.T) {
-		var polls int32
+		var polls atomic.Int32
 		jc := &jenkinsClientMock{
 			ConsoleProgressiveFunc: func(_ context.Context, _ string, start int64) (jenkins.ConsoleChunk, error) {
-				if atomic.AddInt32(&polls, 1) < 2 {
+				if polls.Add(1) < 2 {
 					return jenkins.ConsoleChunk{Text: "a\n", Size: 2, More: true}, nil
 				}
 				return jenkins.ConsoleChunk{Text: "b\n", Size: 4, More: false}, nil
@@ -313,17 +313,17 @@ func TestStatus_Logs(t *testing.T) {
 
 func TestStatus_Wait(t *testing.T) {
 	t.Run("follows a running build to terminal and renders final snapshot", func(t *testing.T) {
-		var polls int32
+		var polls atomic.Int32
 		jc := &jenkinsClientMock{
 			BuildStatusFunc: func(_ context.Context, buildURL string) (jenkins.Build, error) {
 				// building for the first two polls, then done.
-				if atomic.AddInt32(&polls, 1) < 3 {
+				if polls.Add(1) < 3 {
 					return jenkins.Build{Number: 42, URL: buildURL, Building: true, Timestamp: 5}, nil
 				}
 				return jenkins.Build{Number: 42, URL: buildURL, Building: false, Result: "SUCCESS", Timestamp: 5}, nil
 			},
 			StageViewFunc: func(context.Context, string) ([]jenkins.Stage, error) {
-				i := int(atomic.LoadInt32(&polls))
+				i := int(polls.Load())
 				if i < 3 {
 					return []jenkins.Stage{{Name: "Build", Status: "IN_PROGRESS"}}, nil
 				}
@@ -344,7 +344,7 @@ func TestStatus_Wait(t *testing.T) {
 		// stage transitions streamed to stderr; final snapshot to stdout.
 		assert.Contains(t, errBuf.String(), "▶ Build")
 		assert.Contains(t, out.String(), "deploy-app #42  SUCCESS")
-		assert.GreaterOrEqual(t, int(atomic.LoadInt32(&polls)), 3)
+		assert.GreaterOrEqual(t, int(polls.Load()), 3)
 	})
 
 	t.Run("already-terminal target renders once, not an error", func(t *testing.T) {
@@ -364,10 +364,10 @@ func TestStatus_Wait(t *testing.T) {
 	})
 
 	t.Run("json wait emits a single final document", func(t *testing.T) {
-		var polls int32
+		var polls atomic.Int32
 		jc := &jenkinsClientMock{
 			BuildStatusFunc: func(_ context.Context, buildURL string) (jenkins.Build, error) {
-				if atomic.AddInt32(&polls, 1) < 2 {
+				if polls.Add(1) < 2 {
 					return jenkins.Build{Number: 42, URL: buildURL, Building: true, Timestamp: 5}, nil
 				}
 				return jenkins.Build{Number: 42, URL: buildURL, Building: false, Result: "SUCCESS", Timestamp: 5}, nil

@@ -216,7 +216,7 @@ func TestServer_Close_FlushesCacheAndIsIdempotent(t *testing.T) {
 
 	roundTrip(t, sock, request{Op: "get-token", Profile: "a"})
 	srv.mu.Lock()
-	require.NotZero(t, len(srv.cache))
+	require.NotEmpty(t, srv.cache)
 	srv.mu.Unlock()
 
 	require.NoError(t, srv.Close())

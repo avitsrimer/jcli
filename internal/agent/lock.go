@@ -12,7 +12,7 @@ import (
 // flock. If another process already holds it, it returns errAlreadyRunning so the caller can
 // exit cleanly. The returned *os.File must be passed to releaseLock to drop the lock.
 func acquireLock(path string) (*os.File, error) {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600) //nolint:gosec // path is the agent's own lockfile under a fixed runtime dir, not user input
 	if err != nil {
 		return nil, fmt.Errorf("open lockfile %s: %w", path, err)
 	}
@@ -29,5 +29,8 @@ func acquireLock(path string) (*os.File, error) {
 // releaseLock drops the flock and closes the lockfile handle.
 func releaseLock(f *os.File) error {
 	_ = unix.Flock(int(f.Fd()), unix.LOCK_UN)
-	return f.Close()
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("close lockfile: %w", err)
+	}
+	return nil
 }

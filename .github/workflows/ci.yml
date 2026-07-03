@@ -1,0 +1,62 @@
+name: build
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-latest
+    env:
+      GOTOOLCHAIN: local
+    steps:
+      - name: checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: set up go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: test
+        run: make test
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: "v2.12.2"
+
+  cross-build:
+    runs-on: ubuntu-latest
+    env:
+      GOTOOLCHAIN: local
+    steps:
+      - name: checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: set up go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: cross-build linux stub
+        run: make cross-build
+
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: shellcheck
+        run: |
+          find . -name '*.sh' -not -path './.git/*' -print0 | xargs -0 shellcheck

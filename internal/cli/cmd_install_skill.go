@@ -36,8 +36,8 @@ func (c *installSkillCmd) runInstallSkill() error {
 		rel := path[len(root):]
 		target := filepath.Join(dest, filepath.FromSlash(rel))
 		if d.IsDir() {
-			if err := os.MkdirAll(target, 0o755); err != nil {
-				return fmt.Errorf("create dir %s: %w", target, err)
+			if mkErr := os.MkdirAll(target, 0o750); mkErr != nil {
+				return fmt.Errorf("create dir %s: %w", target, mkErr)
 			}
 			return nil
 		}
@@ -45,7 +45,7 @@ func (c *installSkillCmd) runInstallSkill() error {
 		if err != nil {
 			return fmt.Errorf("read embedded %s: %w", path, err)
 		}
-		if err := os.WriteFile(target, data, 0o644); err != nil {
+		if err := os.WriteFile(target, data, 0o600); err != nil {
 			return fmt.Errorf("write %s: %w", target, err)
 		}
 		return nil

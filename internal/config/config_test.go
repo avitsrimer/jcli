@@ -120,7 +120,7 @@ func TestResolvePrecedence(t *testing.T) {
 	t.Run("empty when all unset", func(t *testing.T) {
 		t.Setenv(envProfile, "")
 		empty := &Config{}
-		assert.Equal(t, "", empty.Resolve(""))
+		assert.Empty(t, empty.Resolve(""))
 	})
 }
 

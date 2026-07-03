@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -20,7 +21,7 @@ const maxSuggestions = 5
 // close-name suggestions.
 func (c *getCmd) runGet(name string) error {
 	if name == "" {
-		return fmt.Errorf("get: missing job name")
+		return errors.New("get: missing job name")
 	}
 	prof, client, err := c.app.clientFor()
 	if err != nil {
@@ -34,8 +35,8 @@ func (c *getCmd) runGet(name string) error {
 	job, ok := m.Lookup(name)
 	if !ok {
 		// one crawl-then-retry before giving up, so a freshly created job resolves without --refresh.
-		if err := c.app.crawlAndSave(m, client, prof); err != nil {
-			return err
+		if csErr := c.app.crawlAndSave(m, client, prof); csErr != nil {
+			return csErr
 		}
 		if job, ok = m.Lookup(name); !ok {
 			return c.notFound(m, name)
@@ -71,10 +72,13 @@ func (c *getCmd) printGet(name string, job cache.Job) error {
 	if c.app.global.JSON {
 		enc := json.NewEncoder(c.app.stdout)
 		enc.SetIndent("", "  ")
-		return enc.Encode(struct {
+		if err := enc.Encode(struct {
 			Name string `json:"name"`
 			cache.Job
-		}{Name: name, Job: job})
+		}{Name: name, Job: job}); err != nil {
+			return fmt.Errorf("encode job json: %w", err)
+		}
+		return nil
 	}
 
 	w := c.app.stdout

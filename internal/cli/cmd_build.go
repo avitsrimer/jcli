@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -50,7 +51,7 @@ func (a *app) waitEvery() time.Duration {
 // (exit 4) on a non-SUCCESS result.
 func (c *buildCmd) runBuild(name string) error {
 	if name == "" {
-		return fmt.Errorf("build: missing job name")
+		return errors.New("build: missing job name")
 	}
 	// --logs needs the resolved build URL, which only exists once the run starts, so it implies --wait.
 	if c.Logs {
@@ -154,7 +155,7 @@ func (c *buildCmd) waitForBuild(client jenkinsClient, name, loc string) error {
 			return fmt.Errorf("poll queue item for %q: %w", name, err)
 		}
 		if item.Cancelled {
-			return fmt.Errorf("build %q was cancelled in the queue: %w", name, errBuildFailed)
+			return fmt.Errorf("build %q was canceled in the queue: %w", name, errBuildFailed)
 		}
 		if item.Executable != nil && item.Executable.URL != "" {
 			buildURL = item.Executable.URL
@@ -363,10 +364,5 @@ func paramNames(defs []jenkins.Param) []string {
 
 // contains reports whether s is in list.
 func contains(list []string, s string) bool {
-	for _, v := range list {
-		if v == s {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(list, s)
 }

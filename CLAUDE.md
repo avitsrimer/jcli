@@ -41,7 +41,7 @@ binary is self-contained and re-installs are idempotent.
 ```bash
 make build       # stop the stale agent (see below), then go build -o jcli ./cmd/jcli
 make test        # go test -race ./...
-make lint        # golangci-lint run
+make lint        # GOTOOLCHAIN=local golangci-lint run (config: .golangci.yml)
 make fmt         # gofmt -s -w . && goimports -w .
 make cross-build # GOOS=linux CGO_ENABLED=0 go build/vet ./... (keychain stub)
 make cert        # create/reuse the self-signed code-signing identity (idempotent)
@@ -61,6 +61,31 @@ on a `stop-agent` target that `pkill`s the agent at this binary's absolute path
 stops the agent at `$(INSTALL_DIR)/jcli`. A fresh agent spawns on demand at the
 next command. `stop-agent` is a no-op when none is running and never fails the
 build.
+
+## CI & lint config
+
+GitHub Actions (`.github/workflows/ci.yml`) runs three jobs: `build` on
+`macos-latest` (`make test` + `golangci-lint`, because the cgo keychain code only
+compiles on darwin), `cross-build` on `ubuntu-latest` (`make cross-build`), and
+`shellcheck` over `scripts/`. Code signing / release stay manual — the keychain
+ACL is bound to the local self-signed identity and cannot be reproduced in CI.
+
+`.golangci.yml` (golangci-lint v2, derived from `umputun/revdiff`) drives both CI
+and `make lint`; the target sets `GOTOOLCHAIN=local` so local lint matches CI's
+pinned toolchain. Deliberate config choices — don't undo them without reason:
+
+- `issues.max-{same,per-linter}-issues: 0` — report every finding, not a capped
+  sample, so `make lint` output is honest (the defaults hid the true counts).
+- `errcheck.exclude-functions: [fmt.Fprint, fmt.Fprintf, fmt.Fprintln]` — CLI
+  diagnostic writes to stdout/stderr never need their error checked.
+- `misspell.ignore-rules: [cancelled]` — Jenkins wire term (`json:"cancelled"`),
+  kept for API compatibility. **Never let a misspell autofix rename that JSON tag.**
+- `gosec` is excluded on `_test.go` (test-controlled paths/perms are not a
+  security surface). The remaining production `G304` reads (`config`, `cache`,
+  agent `lock`) carry inline `//nolint:gosec` — the paths are jcli's own, not user
+  input.
+- The cgo `import "C"` / `C.getItem` `//nolint:gocritic` directives suppress
+  `dupImport`/`dupSubExpr` false positives from the cgo pseudo-import.
 
 ## Code signing (stable identity — do NOT regenerate the cert)
 
