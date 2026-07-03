@@ -110,11 +110,11 @@ static int deleteItem(const char *service, const char *account) {
 	return (int)status;
 }
 */
-import "C"
+import "C" //nolint:gocritic // cgo pseudo-import must be its own statement; not a real duplicate
 
 import (
 	"fmt"
-	"unsafe"
+	"unsafe" //nolint:gocritic // dupImport false positive: import "C" above is a cgo pseudo-import
 )
 
 // keychainService is the generic-password service string. It shows in the keychain authorization
@@ -141,7 +141,7 @@ func osStatusHint(status int) string {
 // darwinKeychain is the cgo-backed keychainStore. The token is stored as a plain generic-password
 // item in the default (login) keychain; the item's trusted-application ACL is bound to the signed
 // binary's designated requirement, so the same signed binary reads it back without a prompt. It is
-// not safe for concurrent use; the agent serialises access through its request loop.
+// not safe for concurrent use; the agent serializes access through its request loop.
 type darwinKeychain struct{}
 
 // newKeychainStore returns the platform keychainStore for darwin.
@@ -184,7 +184,7 @@ func (k *darwinKeychain) Get(profile string) (string, error) {
 
 	var data unsafe.Pointer
 	var n C.int
-	status := C.getItem(cSvc, cAcct, &data, &n)
+	status := C.getItem(cSvc, cAcct, &data, &n) //nolint:gocritic // dupSubExpr false positive on cgo-generated call
 	if int(status) != 0 {
 		if int(status) == errSecItemNotFound {
 			return "", fmt.Errorf("keychain get for profile %q: %w", profile, ErrNoToken)

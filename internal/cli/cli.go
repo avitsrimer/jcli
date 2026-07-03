@@ -153,7 +153,11 @@ func (a *app) resolveProfile() (config.Profile, error) {
 	if name == "" {
 		return config.Profile{}, errors.New("no profile selected: pass --profile, set JCLI_PROFILE, or run 'jcli login'")
 	}
-	return a.cfg.Get(name)
+	prof, err := a.cfg.Get(name)
+	if err != nil {
+		return config.Profile{}, fmt.Errorf("get profile %q: %w", name, err)
+	}
+	return prof, nil
 }
 
 // clientFor resolves the active profile and builds a Jenkins client for it using the token from the
@@ -173,14 +177,13 @@ func (a *app) clientFor() (config.Profile, jenkinsClient, error) {
 
 // crawlAndSave rebuilds the job map from a fresh Jenkins crawl and persists it under the profile's
 // name. It is the shared "refresh the cache" step used by list/get/build/dump on a cold cache, a
-// --refresh flag, or a lookup miss. The Rebuild error is returned as-is (it already carries
-// context); a Save failure is wrapped.
+// --refresh flag, or a lookup miss. Both the Rebuild and Save failures are wrapped with context.
 func (a *app) crawlAndSave(m *cache.Map, client jenkinsClient, prof config.Profile) error {
 	a.verbosef("crawling jobs for profile %q from %s", prof.Name, prof.URL)
 	if err := m.Rebuild(prof.URL, func() ([]jenkins.Job, error) {
 		return client.Jobs(context.Background())
 	}); err != nil {
-		return err
+		return fmt.Errorf("rebuild job map: %w", err)
 	}
 	if err := m.Save(prof.Name); err != nil {
 		return fmt.Errorf("save cache: %w", err)

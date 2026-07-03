@@ -132,7 +132,7 @@ func TestLogin(t *testing.T) {
 		assert.Equal(t, exitAuth, code)
 		assert.Empty(t, cr.setCalls, "token must not be stored on verify failure")
 		_, err := a.cfg.Get("work")
-		assert.ErrorIs(t, err, config.ErrNotFound, "profile must not be persisted on verify failure")
+		require.ErrorIs(t, err, config.ErrNotFound, "profile must not be persisted on verify failure")
 		assert.NotEmpty(t, errBuf.String())
 	})
 
@@ -304,7 +304,7 @@ func TestProfile(t *testing.T) {
 		code := a.run([]string{"profile", "rm", "staging"})
 		require.Equal(t, exitOK, code)
 		_, err := a.cfg.Get("staging")
-		assert.ErrorIs(t, err, config.ErrNotFound)
+		require.ErrorIs(t, err, config.ErrNotFound)
 		assert.Equal(t, []string{"staging"}, cr.deleteCalls)
 	})
 
@@ -363,7 +363,7 @@ func TestLogout(t *testing.T) {
 		require.Equal(t, exitOK, code)
 		assert.Equal(t, []string{"work"}, cr.deleteCalls)
 		_, err := a.cfg.Get("work")
-		assert.ErrorIs(t, err, config.ErrNotFound)
+		require.ErrorIs(t, err, config.ErrNotFound)
 
 		reloaded, err := config.Load()
 		require.NoError(t, err)

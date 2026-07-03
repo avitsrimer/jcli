@@ -1,6 +1,9 @@
 package cli
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 // runProfile dispatches the profile subcommand on its first positional arg: list (or no arg) shows
 // all profiles marking the default, use <p> sets the default, rm <p> removes the profile from config
@@ -15,12 +18,12 @@ func (c *profileCmd) runProfile(args []string) error {
 		return c.list()
 	case "use":
 		if len(args) < 2 {
-			return fmt.Errorf("profile use: missing profile name")
+			return errors.New("profile use: missing profile name")
 		}
 		return c.use(args[1])
 	case "rm":
 		if len(args) < 2 {
-			return fmt.Errorf("profile rm: missing profile name")
+			return errors.New("profile rm: missing profile name")
 		}
 		return c.rm(args[1])
 	default:

@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -123,12 +124,13 @@ func newServer(store keychainStore, sockPath string) (*Server, error) {
 	}
 
 	// we hold the lock — any leftover socket is stale, so remove it before binding.
-	if err := os.Remove(sockPath); err != nil && !os.IsNotExist(err) {
+	if rmErr := os.Remove(sockPath); rmErr != nil && !os.IsNotExist(rmErr) {
 		_ = releaseLock(lock)
-		return nil, fmt.Errorf("remove stale socket %s: %w", sockPath, err)
+		return nil, fmt.Errorf("remove stale socket %s: %w", sockPath, rmErr)
 	}
 
-	ln, err := net.Listen("unix", sockPath)
+	lc := net.ListenConfig{}
+	ln, err := lc.Listen(context.Background(), "unix", sockPath)
 	if err != nil {
 		_ = releaseLock(lock)
 		return nil, fmt.Errorf("listen on %s: %w", sockPath, err)

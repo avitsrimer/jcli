@@ -556,8 +556,8 @@ func TestClient_ServerError_BodySnippet(t *testing.T) {
 	c := New(srv.URL, "alice", "tok", srv.Client())
 	_, err := c.Jobs(context.Background())
 	require.Error(t, err)
-	assert.NotErrorIs(t, err, ErrAuth)
-	assert.NotErrorIs(t, err, ErrNotFound)
+	require.NotErrorIs(t, err, ErrAuth)
+	require.NotErrorIs(t, err, ErrNotFound)
 	assert.Contains(t, err.Error(), "500")
 	assert.Contains(t, err.Error(), "boom: internal failure")
 }

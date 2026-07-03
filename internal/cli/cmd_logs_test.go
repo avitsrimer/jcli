@@ -117,10 +117,10 @@ func TestLogs_Dump(t *testing.T) {
 
 func TestLogs_Follow(t *testing.T) {
 	t.Run("streams progressive chunks until no more data", func(t *testing.T) {
-		var polls int32
+		var polls atomic.Int32
 		jc := &jenkinsClientMock{
 			ConsoleProgressiveFunc: func(_ context.Context, _ string, start int64) (jenkins.ConsoleChunk, error) {
-				switch atomic.AddInt32(&polls, 1) {
+				switch polls.Add(1) {
 				case 1:
 					assert.Equal(t, int64(0), start)
 					return jenkins.ConsoleChunk{Text: "line 1\n", Size: 7, More: true}, nil
@@ -140,6 +140,6 @@ func TestLogs_Follow(t *testing.T) {
 		code := a.run([]string{"logs", "deploy-app", "42", "--wait"})
 		require.Equal(t, exitOK, code)
 		assert.Equal(t, "line 1\nline 2\ndone\n", out.String())
-		assert.Equal(t, int32(3), atomic.LoadInt32(&polls))
+		assert.Equal(t, int32(3), polls.Load())
 	})
 }

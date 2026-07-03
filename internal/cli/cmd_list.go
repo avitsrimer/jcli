@@ -51,7 +51,10 @@ func (c *listCmd) printList(names []string) error {
 		if names == nil {
 			names = []string{}
 		}
-		return enc.Encode(names)
+		if err := enc.Encode(names); err != nil {
+			return fmt.Errorf("encode job names json: %w", err)
+		}
+		return nil
 	}
 	for _, n := range names {
 		fmt.Fprintln(c.app.stdout, n)

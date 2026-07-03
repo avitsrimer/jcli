@@ -98,7 +98,7 @@ func (c *Client) Build(ctx context.Context, jobPath string, params map[string]st
 		endpoint += "?" + encoded
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, http.NoBody)
 	if err != nil {
 		return "", fmt.Errorf("build %s: new request: %w", jobPath, err)
 	}
@@ -257,7 +257,7 @@ func (c *Client) getText(ctx context.Context, endpoint string, query url.Values)
 	if len(query) > 0 {
 		endpoint += "?" + query.Encode()
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, http.NoBody)
 	if err != nil {
 		return "", nil, fmt.Errorf("new request: %w", err)
 	}
@@ -293,7 +293,7 @@ func (c *Client) getJSON(ctx context.Context, path string, query url.Values, out
 // to typed errors, and decodes a 200 body into out. Used for queue/build URLs which Jenkins
 // hands back as absolute URLs rather than baseURL-relative paths.
 func (c *Client) getJSONURL(ctx context.Context, endpoint string, out any) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, http.NoBody)
 	if err != nil {
 		return fmt.Errorf("new request: %w", err)
 	}

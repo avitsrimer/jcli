@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 
@@ -16,11 +17,11 @@ import (
 func (c *logsCmd) runLogs(args []string) error {
 	switch len(args) {
 	case 0:
-		return fmt.Errorf("logs: missing job name")
+		return errors.New("logs: missing job name")
 	case 1, 2:
 		// handled below
 	default:
-		return fmt.Errorf("logs: too many arguments (expected job [number])")
+		return errors.New("logs: too many arguments (expected job [number])")
 	}
 
 	prof, client, err := c.app.clientFor()
@@ -75,8 +76,10 @@ func (a *app) dumpConsole(client jenkinsClient, buildURL string) error {
 	if err != nil {
 		return fmt.Errorf("read console: %w", err)
 	}
-	_, err = fmt.Fprint(a.stdout, text)
-	return err
+	if _, err = fmt.Fprint(a.stdout, text); err != nil {
+		return fmt.Errorf("write console: %w", err)
+	}
+	return nil
 }
 
 // followConsole streams a build's console to stdout until Jenkins reports no more data, bounded by
@@ -110,7 +113,7 @@ func (a *app) streamConsoleChunk(ctx context.Context, client jenkinsClient, buil
 	}
 	if chunk.Text != "" {
 		if _, werr := fmt.Fprint(a.stdout, chunk.Text); werr != nil {
-			return chunk.Size, chunk.More, werr
+			return chunk.Size, chunk.More, fmt.Errorf("write console: %w", werr)
 		}
 	}
 	return chunk.Size, chunk.More, nil

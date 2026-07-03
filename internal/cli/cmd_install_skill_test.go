@@ -32,10 +32,10 @@ func TestInstallSkill(t *testing.T) {
 
 		dirInfo, err := os.Stat(dest)
 		require.NoError(t, err)
-		assert.Equal(t, os.FileMode(0o755), dirInfo.Mode().Perm(), "skill dir should be 0o755")
+		assert.Equal(t, os.FileMode(0o750), dirInfo.Mode().Perm(), "skill dir should be 0o750")
 		fileInfo, err := os.Stat(skillPath)
 		require.NoError(t, err)
-		assert.Equal(t, os.FileMode(0o644), fileInfo.Mode().Perm(), "skill file should be 0o644")
+		assert.Equal(t, os.FileMode(0o600), fileInfo.Mode().Perm(), "skill file should be 0o600")
 	})
 
 	t.Run("overwrites a stale destination", func(t *testing.T) {

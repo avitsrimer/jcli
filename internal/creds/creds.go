@@ -4,6 +4,7 @@
 package creds
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -140,7 +141,8 @@ func exchange(conn net.Conn, req request) (response, error) {
 // waits, bounded, for the socket to accept. A benign refused-then-present transition is never
 // fatal — whichever agent wins the single-instance race is the one we connect to.
 func (c *Client) connect() (net.Conn, error) {
-	conn, err := net.DialTimeout("unix", c.sockPath, dialTimeout)
+	d := net.Dialer{Timeout: dialTimeout}
+	conn, err := d.DialContext(context.Background(), "unix", c.sockPath)
 	if err == nil {
 		return conn, nil
 	}
@@ -158,7 +160,7 @@ func (c *Client) connect() (net.Conn, error) {
 // controlling terminal and discarded stdio, so it outlives this CLI process and is never reaped
 // by it. The spawn is idempotent — a duplicate agent loses the single-instance race and exits.
 func (c *Client) spawnAgent() error {
-	cmd := exec.Command(c.self, "__agent") //nolint:gosec // self is os.Executable, not user input
+	cmd := exec.CommandContext(context.Background(), c.self, "__agent") //nolint:gosec // self is os.Executable, not user input
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, nil
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
@@ -174,7 +176,8 @@ func (c *Client) spawnAgent() error {
 func (c *Client) waitConnect() (net.Conn, error) {
 	deadline := time.Now().Add(c.spawnTimeout)
 	for {
-		conn, err := net.DialTimeout("unix", c.sockPath, dialTimeout)
+		d := net.Dialer{Timeout: dialTimeout}
+		conn, err := d.DialContext(context.Background(), "unix", c.sockPath)
 		if err == nil {
 			return conn, nil
 		}

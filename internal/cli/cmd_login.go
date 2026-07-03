@@ -3,6 +3,7 @@ package cli
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -88,7 +89,7 @@ func (c *loginCmd) runLogin() error {
 		}
 	}
 	if url == "" {
-		return fmt.Errorf("Jenkins URL is required")
+		return errors.New("a Jenkins URL is required")
 	}
 	username := strings.TrimSpace(c.Username)
 	if username == "" {
@@ -97,14 +98,14 @@ func (c *loginCmd) runLogin() error {
 		}
 	}
 	if username == "" {
-		return fmt.Errorf("username is required")
+		return errors.New("username is required")
 	}
 	token, err := p.promptSecret("API token: ")
 	if err != nil {
 		return err
 	}
 	if token == "" {
-		return fmt.Errorf("API token is required")
+		return errors.New("API token is required")
 	}
 
 	// verify the token before persisting anything: a bad token must fail with the auth exit code and

@@ -230,7 +230,7 @@ func TestRebuildCrawlError(t *testing.T) {
 
 	err := m.Rebuild("https://jenkins.example.com", crawl)
 	require.Error(t, err)
-	assert.ErrorIs(t, err, assert.AnError)
+	require.ErrorIs(t, err, assert.AnError)
 	assert.Contains(t, m.Jobs, "keep", "map left intact on crawl failure")
 }
 

@@ -191,12 +191,12 @@ func TestBuild_Wait(t *testing.T) {
 	const buildURL = "https://jenkins.example.com/job/deploy-app/7/"
 
 	t.Run("queue executable transition then SUCCESS exits 0", func(t *testing.T) {
-		var queuePolls int32
+		var queuePolls atomic.Int32
 		jc := &jenkinsClientMock{
 			BuildFunc: func(context.Context, string, map[string]string) (string, error) { return queueLoc, nil },
 			QueueItemFunc: func(context.Context, string) (jenkins.QueueItem, error) {
 				// first poll: still pending (no executable); second: build number assigned.
-				if atomic.AddInt32(&queuePolls, 1) < 2 {
+				if queuePolls.Add(1) < 2 {
 					return jenkins.QueueItem{}, nil
 				}
 				return jenkins.QueueItem{Executable: &jenkins.Executable{Number: 7, URL: buildURL}}, nil
@@ -218,7 +218,7 @@ func TestBuild_Wait(t *testing.T) {
 	})
 
 	t.Run("building then FAILURE exits 4", func(t *testing.T) {
-		var resultPolls int32
+		var resultPolls atomic.Int32
 		jc := &jenkinsClientMock{
 			BuildFunc: func(context.Context, string, map[string]string) (string, error) { return queueLoc, nil },
 			QueueItemFunc: func(context.Context, string) (jenkins.QueueItem, error) {
@@ -226,7 +226,7 @@ func TestBuild_Wait(t *testing.T) {
 			},
 			BuildResultFunc: func(context.Context, string) (jenkins.BuildResult, error) {
 				// first poll building, second poll terminal FAILURE.
-				if atomic.AddInt32(&resultPolls, 1) < 2 {
+				if resultPolls.Add(1) < 2 {
 					return jenkins.BuildResult{Building: true}, nil
 				}
 				return jenkins.BuildResult{Building: false, Result: "FAILURE"}, nil
@@ -268,7 +268,7 @@ func TestBuild_WaitStages(t *testing.T) {
 	const buildURL = "https://jenkins.example.com/job/deploy-app/7/"
 
 	t.Run("evolving stage snapshots emit transitions without dupes", func(t *testing.T) {
-		var poll int32
+		var poll atomic.Int32
 		// three poll snapshots: build first IN_PROGRESS, then build done + test IN_PROGRESS,
 		// then both done. BuildResult goes terminal on the third poll.
 		snapshots := [][]jenkins.Stage{
@@ -282,14 +282,14 @@ func TestBuild_WaitStages(t *testing.T) {
 				return jenkins.QueueItem{Executable: &jenkins.Executable{Number: 7, URL: buildURL}}, nil
 			},
 			BuildResultFunc: func(context.Context, string) (jenkins.BuildResult, error) {
-				if atomic.AddInt32(&poll, 1) < 3 {
+				if poll.Add(1) < 3 {
 					return jenkins.BuildResult{Building: true}, nil
 				}
 				return jenkins.BuildResult{Building: false, Result: "SUCCESS"}, nil
 			},
 			StageViewFunc: func(context.Context, string) ([]jenkins.Stage, error) {
 				// align stage snapshot to the current build poll (1-indexed, capped at last).
-				i := int(atomic.LoadInt32(&poll)) - 1
+				i := int(poll.Load()) - 1
 				if i >= len(snapshots) {
 					i = len(snapshots) - 1
 				}
@@ -361,7 +361,7 @@ func TestBuild_WaitStages(t *testing.T) {
 
 		code := a.run([]string{"build", "deploy-app", "--wait", "--no-stages"})
 		require.Equal(t, exitOK, code)
-		assert.Equal(t, 0, len(jc.StageViewCalls()), "--no-stages suppresses all stage fetching")
+		assert.Empty(t, jc.StageViewCalls(), "--no-stages suppresses all stage fetching")
 	})
 
 	// terminalGlyphs exercises each non-IN_PROGRESS terminal status glyph and its duration rendering:
@@ -380,7 +380,7 @@ func TestBuild_WaitStages(t *testing.T) {
 	}
 	for _, tc := range terminalGlyphs {
 		t.Run(tc.name+" stage glyph and duration", func(t *testing.T) {
-			var poll int32
+			var poll atomic.Int32
 			snapshots := [][]jenkins.Stage{
 				{{Name: "deploy", Status: "IN_PROGRESS"}},
 				{{Name: "deploy", Status: tc.status, DurationMillis: tc.durationMS}},
@@ -392,13 +392,13 @@ func TestBuild_WaitStages(t *testing.T) {
 				},
 				BuildResultFunc: func(context.Context, string) (jenkins.BuildResult, error) {
 					// stay building for the first poll, terminal SUCCESS on the second.
-					if atomic.AddInt32(&poll, 1) < 2 {
+					if poll.Add(1) < 2 {
 						return jenkins.BuildResult{Building: true}, nil
 					}
 					return jenkins.BuildResult{Building: false, Result: "SUCCESS"}, nil
 				},
 				StageViewFunc: func(context.Context, string) ([]jenkins.Stage, error) {
-					i := int(atomic.LoadInt32(&poll)) - 1
+					i := int(poll.Load()) - 1
 					if i >= len(snapshots) {
 						i = len(snapshots) - 1
 					}
@@ -419,7 +419,7 @@ func TestBuild_WaitStages(t *testing.T) {
 	}
 
 	t.Run("persistent non-404 stage view error is swallowed and logged once across polls", func(t *testing.T) {
-		var poll int32
+		var poll atomic.Int32
 		jc := &jenkinsClientMock{
 			BuildFunc: func(context.Context, string, map[string]string) (string, error) { return queueLoc, nil },
 			QueueItemFunc: func(context.Context, string) (jenkins.QueueItem, error) {
@@ -427,7 +427,7 @@ func TestBuild_WaitStages(t *testing.T) {
 			},
 			BuildResultFunc: func(context.Context, string) (jenkins.BuildResult, error) {
 				// stay building for several polls so logStages runs repeatedly, then go terminal.
-				if atomic.AddInt32(&poll, 1) < 4 {
+				if poll.Add(1) < 4 {
 					return jenkins.BuildResult{Building: true}, nil
 				}
 				return jenkins.BuildResult{Building: false, Result: "SUCCESS"}, nil
@@ -480,14 +480,14 @@ func TestBuild_WaitErrors(t *testing.T) {
 	const queueLoc = "https://jenkins.example.com/queue/item/9/"
 	const buildURL = "https://jenkins.example.com/job/deploy-app/7/"
 
-	t.Run("cancelled queue item exits 4", func(t *testing.T) {
+	t.Run("canceled queue item exits 4", func(t *testing.T) {
 		jc := &jenkinsClientMock{
 			BuildFunc: func(context.Context, string, map[string]string) (string, error) { return queueLoc, nil },
 			QueueItemFunc: func(context.Context, string) (jenkins.QueueItem, error) {
 				return jenkins.QueueItem{Cancelled: true}, nil
 			},
 			BuildResultFunc: func(context.Context, string) (jenkins.BuildResult, error) {
-				t.Fatal("must not poll build result after a cancelled queue item")
+				t.Fatal("must not poll build result after a canceled queue item")
 				return jenkins.BuildResult{}, nil
 			},
 		}
@@ -497,7 +497,7 @@ func TestBuild_WaitErrors(t *testing.T) {
 
 		code := a.run([]string{"build", "deploy-app", "--wait"})
 		assert.Equal(t, exitBuildFail, code)
-		assert.Contains(t, errBuf.String(), "cancelled")
+		assert.Contains(t, errBuf.String(), "canceled")
 		assert.Empty(t, jc.BuildResultCalls())
 	})
 
@@ -598,7 +598,7 @@ func TestBuild_WaitLogs(t *testing.T) {
 	const buildURL = "https://jenkins.example.com/job/deploy-app/7/"
 
 	t.Run("--logs implies --wait, streams console, suppresses stages, exits by result", func(t *testing.T) {
-		var poll int32
+		var poll atomic.Int32
 		jc := &jenkinsClientMock{
 			BuildFunc: func(context.Context, string, map[string]string) (string, error) { return queueLoc, nil },
 			QueueItemFunc: func(context.Context, string) (jenkins.QueueItem, error) {
@@ -606,7 +606,7 @@ func TestBuild_WaitLogs(t *testing.T) {
 			},
 			BuildResultFunc: func(context.Context, string) (jenkins.BuildResult, error) {
 				// building on the first poll, terminal SUCCESS after.
-				if atomic.AddInt32(&poll, 1) < 2 {
+				if poll.Add(1) < 2 {
 					return jenkins.BuildResult{Building: true}, nil
 				}
 				return jenkins.BuildResult{Building: false, Result: "SUCCESS"}, nil

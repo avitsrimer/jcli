@@ -61,7 +61,7 @@ func Load() (*Config, error) {
 
 // loadFrom is the testable core of Load, reading an explicit path.
 func loadFrom(path string) (*Config, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // path is jcli's own config file, not user input
 	if errors.Is(err, os.ErrNotExist) {
 		return &Config{}, nil
 	}

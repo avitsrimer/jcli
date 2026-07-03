@@ -21,14 +21,14 @@ import (
 // to terminal state and is only meaningful with a target.
 func (c *statusCmd) runStatus(args []string) error {
 	if len(args) > 2 {
-		return fmt.Errorf("status: too many arguments (expected [job [number]])")
+		return errors.New("status: too many arguments (expected [job [number]])")
 	}
 	if c.Wait && len(args) == 0 {
-		return fmt.Errorf("status: --wait requires a job (optionally a build number)")
+		return errors.New("status: --wait requires a job (optionally a build number)")
 	}
 	// --logs shows a single build's console, so it only makes sense at the build-id level.
 	if c.Logs && len(args) != 2 {
-		return fmt.Errorf("status: --logs requires a job and build number (use 'logs <job>' for the latest build)")
+		return errors.New("status: --logs requires a job and build number (use 'logs <job>' for the latest build)")
 	}
 
 	switch len(args) {
@@ -286,10 +286,7 @@ func (c *statusCmd) elapsedOf(timestamp int64) string {
 	if timestamp <= 0 {
 		return humanizeDuration(0)
 	}
-	d := c.app.clock().Sub(time.UnixMilli(timestamp))
-	if d < 0 {
-		d = 0
-	}
+	d := max(c.app.clock().Sub(time.UnixMilli(timestamp)), 0)
 	return humanizeDuration(d.Milliseconds())
 }
 
@@ -357,5 +354,8 @@ func (c *statusCmd) printBuildJSON(name string, b jenkins.Build, stages []jenkin
 func (c *statusCmd) encodeJSON(v any) error {
 	enc := json.NewEncoder(c.app.stdout)
 	enc.SetIndent("", "  ")
-	return enc.Encode(v)
+	if err := enc.Encode(v); err != nil {
+		return fmt.Errorf("encode status json: %w", err)
+	}
+	return nil
 }

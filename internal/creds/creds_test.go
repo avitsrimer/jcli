@@ -141,7 +141,7 @@ func TestClient_Token_NonAuthError(t *testing.T) {
 	c := newClient(sock, "/nonexistent")
 	_, err := c.Token("work")
 	require.Error(t, err)
-	assert.NotErrorIs(t, err, ErrAuth)
+	require.NotErrorIs(t, err, ErrAuth)
 	assert.Contains(t, err.Error(), "unknown op")
 }
 
@@ -178,7 +178,7 @@ func TestClient_ConcurrentSpawnRace(t *testing.T) {
 	var wg sync.WaitGroup
 	errs := make([]error, n)
 	toks := make([]string, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -188,7 +188,7 @@ func TestClient_ConcurrentSpawnRace(t *testing.T) {
 	}
 	wg.Wait()
 
-	for i := 0; i < n; i++ {
+	for i := range n {
 		require.NoError(t, errs[i], "caller %d", i)
 		assert.Equal(t, "spawned-token", toks[i])
 	}
@@ -196,14 +196,14 @@ func TestClient_ConcurrentSpawnRace(t *testing.T) {
 
 func TestClient_SocketGoneMidRequest(t *testing.T) {
 	sock := shortSock(t)
-	// a listener that accepts then immediately closes the connection without replying, modelling
+	// a listener that accepts then immediately closes the connection without replying, modeling
 	// the socket vanishing mid-request. exchange must surface a read error, not hang.
 	ln, err := net.Listen("unix", sock)
 	require.NoError(t, err)
 	defer func() { _ = ln.Close() }()
 	go func() {
-		conn, err := ln.Accept()
-		if err != nil {
+		conn, aerr := ln.Accept()
+		if aerr != nil {
 			return
 		}
 		_ = conn.Close()
@@ -220,8 +220,8 @@ func TestClient_MalformedResponse(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = ln.Close() }()
 	go func() {
-		conn, err := ln.Accept()
-		if err != nil {
+		conn, aerr := ln.Accept()
+		if aerr != nil {
 			return
 		}
 		defer func() { _ = conn.Close() }()
