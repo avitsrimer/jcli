@@ -1,16 +1,16 @@
 # jcli — Design
 
 A general-purpose macOS Jenkins CLI with multi-profile support, Keychain-backed
-credentials (authorized by the login-keychain trusted-app ACL bound to the signed
-binary), and a cached job/param map.
+credentials (authorized by the login-keychain trusted-app ACL bound to the
+binary's ad-hoc code identity), and a cached job/param map.
 
 ## Decisions (brainstorm summary)
 
 | Decision | Choice |
 |---|---|
 | Language | Go 1.24+, following umputun/tg-spam conventions |
-| Credential model | On-demand signed **agent** authorized by the keychain ACL (bound to the binary's DR), in-memory token with TTL, served over a unix socket |
-| Code signing | Self-signed local code-signing certificate (stable designated requirement) |
+| Credential model | On-demand **agent** authorized by the keychain ACL (bound to the binary's ad-hoc code identity), in-memory token with TTL, served over a unix socket |
+| Code signing | None (default ad-hoc identity; no managed cert) |
 | Job map | Cache job **list + params** per profile; live refresh; `dump` emits JSON |
 | Build params | Dynamic `--param-<name>=val`, validated against cached param defs |
 | Build behavior | Fire-and-forget by default; `--wait` polls to completion (result-based exit code) |
@@ -29,14 +29,14 @@ binary), and a cached job/param map.
 
 ## Section 1: Process model & components
 
-**Single signed binary, two modes.** One binary runs as the CLI *or* as the
-credential agent (`jcli __agent`, hidden subcommand). One self-signed cert, one
-designated requirement, one ACL entry — simpler to sign and trust.
+**Single binary, two modes.** One binary runs as the CLI *or* as the
+credential agent (`jcli __agent`, hidden subcommand). It relies on its default
+ad-hoc code identity — no managed cert; the item's ACL trusts that identity.
 
 **Components:**
 1. **CLI front-end** — parses commands (`login`, `list`, `get`, `build`, `dump`, `profile`, `logout`), talks to Jenkins, renders output.
 2. **Credential agent** — same binary in agent mode. Launched on-demand by the CLI if not running. Reads the token from the keychain (authorized once by the trusted-app ACL), holds it in memory with a TTL, serves it over a unix-domain socket.
-3. **Keychain layer** — per-profile plain generic-password item in the default/login keychain, authorized by the trusted-app ACL bound to the signed binary's DR. No `kSecAttrAccessible` is set, so the item takes the default `kSecAttrAccessibleWhenUnlocked`.
+3. **Keychain layer** — per-profile plain generic-password item in the default/login keychain, authorized by the trusted-app ACL bound to the binary's ad-hoc code identity. No `kSecAttrAccessible` is set, so the item takes the default `kSecAttrAccessibleWhenUnlocked`.
 4. **Config store** — `~/.config/jcli/config.json`: profiles (name → url, username, keychain account ref, default flag). **No secrets.**
 5. **Cache store** — `~/.cache/jcli/<profile>/jobs.json`: job map (list + param defs).
 6. **Jenkins REST client** — thin wrapper over whoAmI, `/api/json` tree, per-job param defs, `buildWithParameters`.
@@ -54,7 +54,7 @@ later commands reuse the in-memory token with no further keychain reads. Socket 
 `jcli:<profile>`, service = `Jenkins CLI` (this string is what the keychain
 authorization prompt shows). Stored in the user's **default/login keychain** (the
 file-based keychain), authorized by:
-- the trusted-app **ACL** bound to the signed `jcli` binary's designated requirement (DR) — the creating signed binary is added to the item's ACL, so it reads the item back silently; a binary with a *different* DR triggers the standard keychain "Allow / Always Allow" prompt naming *Jenkins CLI*, and trust survives rebuilds with the same cert.
+- the trusted-app **ACL** bound to the `jcli` binary's ad-hoc code identity — the creating binary is added to the item's ACL, so it reads the item back silently; a binary with a *different* code identity (e.g. after a rebuild, since the ad-hoc cdhash changes) triggers the standard keychain "Allow / Always Allow" prompt naming *Jenkins CLI*, re-authorized once per rebuild.
 
 No `kSecAttrAccessControl` and no data-protection accessibility attribute are set,
 so the item lands in the file-based keychain (not the data-protection keychain,
@@ -65,7 +65,7 @@ the Mac is unlocked.
 
 **Agent lifecycle.**
 - **Spawn:** CLI tries the socket; on connection-refused it `fork/exec`s `jcli __agent` (detached), waits for the socket, then proceeds.
-- **Read:** on the first token request, the agent reads the keychain item (authorized by the trusted-app ACL — silent for the same signed binary). Token held in a locked memory buffer.
+- **Read:** on the first token request, the agent reads the keychain item (authorized by the trusted-app ACL — silent for the binary that created the item). Token held in a locked memory buffer.
 - **TTL & idle exit:** configurable TTL (default 15 min) refreshes on use; agent self-terminates when the TTL lapses or after an absolute idle timeout, zeroing the buffer. Re-arming re-reads the keychain.
 - **Lock events:** agent subscribes to screen-lock/session events and flushes the token immediately on lock.
 - **Scope:** one agent serves all profiles; each profile's token read independently, cached under its own key.
@@ -77,9 +77,10 @@ env; secrets never passed to log calls.
 ### Why the agent is necessary (not just a TTL in the CLI)
 
 A bare CLI exits in milliseconds, so a TTL has nowhere to persist across
-invocations. The keychain authorizes reads by the binary's ACL: the same signed
-binary reads silently, so the access boundary is the signing identity (the DR),
-not a per-read gesture. The agent is the living process that makes the TTL real —
+invocations. The keychain authorizes reads by the binary's ACL: the binary that
+created the item reads silently, so the access boundary is its ad-hoc code
+identity, not a per-read gesture. The agent is the living process that makes the
+TTL real —
 it reads the keychain **once** per arming window and serves the in-memory token to
 subsequent commands, avoiding repeated keychain reads (and any ACL prompt if trust
 has not yet been granted) within the TTL. The agent also bounds the token's
@@ -149,7 +150,7 @@ mockable with `moq`. Explicit status handling: 401→auth(2), 403→permission,
 
 ```
 jenkins-cli/
-├── Makefile                # build, sign (self-signed cert), lint, test, install
+├── Makefile                # build, lint, test, install
 ├── cmd/jcli/main.go        # flag parsing, command dispatch, agent-mode entry
 ├── internal/
 │   ├── cli/                # command handlers (login, list, get, build, dump, profile)
@@ -172,6 +173,8 @@ Keychain accessed via cgo against `Security.framework`, isolated entirely inside
 - `creds`↔`agent` over a real unix socket in tests; the keychain behind a `keychainStore` interface mocked with `moq` (the actual cgo keychain path verified manually).
 - `go test -race ./...`, `golangci-lint run`, `gofmt -s` enforced in Makefile/CI.
 
-**Signing.** `make sign` creates/reuses a self-signed code-signing cert and
-`codesign`s the binary with a stable identity so the keychain ACL trust (bound to
-the DR) + the authorization-prompt name hold across rebuilds.
+**Code identity.** There is no managed cert. `go build` emits an ad-hoc signature
+whose cdhash is the identity the item's keychain ACL trusts. The cdhash changes on
+every rebuild, so macOS shows a one-time "Allow / Always Allow" prompt (naming
+*Jenkins CLI*) after each rebuild/reinstall — the accepted trade-off for dropping
+cert management.

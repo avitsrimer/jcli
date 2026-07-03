@@ -5,10 +5,10 @@ A small, general-purpose command-line tool for triggering and monitoring
 
 It is built to be safe and convenient on macOS: your Jenkins API token lives in
 the **macOS Keychain**, authorized via the **login-keychain ACL bound to the
-signed `jcli` binary** and served through an on-demand in-memory credential agent —
-so it never lands in plaintext, shell history, or the process environment, and you
-are not prompted on every command. Switch between multiple Jenkins servers using
-named **profiles**.
+`jcli` binary's ad-hoc code identity** and served through an on-demand in-memory
+credential agent — so it never lands in plaintext, shell history, or the process
+environment, and you are not prompted on every command. Switch between multiple
+Jenkins servers using named **profiles**.
 
 ## Features
 
@@ -21,9 +21,10 @@ named **profiles**.
 - Read a build's console with `logs` (or `--logs` on `build`/`status`), dumped in
   full or streamed live while the build runs.
 - **macOS Keychain integration** — API tokens are stored in and read from the
-  login Keychain, authorized by the keychain ACL bound to the signed `jcli` binary
-  and served through a short-lived in-memory agent so repeated commands do not
-  re-read the keychain. Nothing sensitive is written to disk or shell history.
+  login Keychain, authorized by the keychain ACL bound to the `jcli` binary's
+  ad-hoc code identity and served through a short-lived in-memory agent so repeated
+  commands do not re-read the keychain. Nothing sensitive is written to disk or
+  shell history.
 - **Profiles** — define multiple named Jenkins targets (e.g. `work`, `staging`,
   `home`), each with its own server URL, username, and Keychain-backed token.
 - Sensible exit codes and clear error messages for scripting.
@@ -41,11 +42,13 @@ named **profiles**.
 ```bash
 git clone <this-repo>
 cd jenkins-cli
-make install     # builds, signs, and installs jcli to ~/bin
+make install     # builds and installs jcli to ~/bin
 ```
 
-See [Building & code signing](#building--code-signing-macos) for the signing
-details (the Keychain UX depends on a stable signing identity).
+See [Building](#building) for build details. The binary relies on its default
+ad-hoc code identity: macOS shows a one-time "Allow / Always Allow" Keychain
+prompt for the token, which reappears once after each rebuild (the ad-hoc cdhash
+changes).
 
 After installing, run `jcli install-skill` to write the bundled skill to
 `~/.claude/skills/jenkins-cli` (pass `--to <path>` to target another `.claude`
@@ -106,12 +109,12 @@ secrets — only the URL, username, and the default selection are stored there).
 Tokens live only in the macOS Keychain and the running agent's memory.
 
 The first credential read reads the token from the Keychain once, authorized by
-the keychain ACL bound to the signed `jcli` binary (silent for the installed
-signed binary; a binary with a different signing identity triggers the standard
-keychain "Allow / Always Allow" prompt). The in-memory agent then serves the token
-to subsequent commands over a `0600` unix socket (peer-UID verified) on a 15-minute
-refresh-on-use TTL, self-exiting after an idle window. Commands within the TTL do
-not re-read the keychain.
+the keychain ACL bound to the `jcli` binary's ad-hoc code identity (silent for the
+binary that created the item; a binary with a different code identity — e.g. after
+a rebuild — triggers the standard keychain "Allow / Always Allow" prompt). The
+in-memory agent then serves the token to subsequent commands over a `0600` unix
+socket (peer-UID verified) on a 15-minute refresh-on-use TTL, self-exiting after an
+idle window. Commands within the TTL do not re-read the keychain.
 
 ## Usage
 
@@ -266,46 +269,29 @@ a missing build is exit 3 and an auth failure exit 2.
 | `3`  | Job / profile not found              |
 | `4`  | Build failed (with `--wait`)         |
 
-## Building & code signing (macOS)
+## Building
 
 ```bash
 make build       # build ./jcli
 make test        # go test -race ./...
 make lint        # golangci-lint run (config: .golangci.yml)
-make cert        # create/reuse the self-signed code-signing identity (idempotent)
-make sign        # codesign --options runtime; prints the designated requirement
-make install     # sign + install to ~/bin (INSTALL_DIR=/usr/local/bin to override)
+make install     # build + install to ~/bin (INSTALL_DIR=/usr/local/bin to override)
 make cross-build # prove the repo still builds on non-darwin (keychain stub)
 ```
 
 `make lint` needs [`golangci-lint`](https://golangci-lint.run) v2 (`brew install
 golangci-lint`). CI (`.github/workflows/ci.yml`) runs the test + lint on
 `macos-latest` (the cgo keychain code only builds on darwin), a cross-build on
-`ubuntu-latest`, and `shellcheck` over `scripts/`.
+`ubuntu-latest`, and `shellcheck` over any repo shell scripts.
 
-The Keychain ACL trust — which lets the signed `jcli` read its token silently — is
-bound to the signing identity's **designated requirement**, derived from the
-self-signed certificate (`jcli Code Signing`). This is an ACL trust, not an
-entitlement. `make cert` is idempotent and **must never regenerate** the
-certificate — a new cert changes the designated requirement, so the rebuilt binary
-no longer matches the ACL and reads hit the keychain "Allow / Always Allow"
-authorization prompt (which names "Jenkins CLI") instead of being silent. A rebuild
-+ re-sign with the same cert produces a stable requirement; verify it with
-`make show-dr`.
-
-The DR codesign derives for a self-signed identity is the leaf-certificate-hash
-form, e.g.:
-
-```
-identifier jcli and certificate leaf = H"<sha1-of-your-cert>"
-```
-
-The hash is **specific to the certificate on your machine** — it is not a shared
-constant. Whoever runs `make cert` gets their own self-signed cert with its own
-hash, so this DR is per-identity. The hash is the certificate's (a public
-fingerprint, safe to record), so the requirement stays stable as long as that
-same cert is reused, and changes if the cert is regenerated. Run `make show-dr`
-after your first sign to capture your own DR string for rebuild verification.
+There is no managed code-signing certificate: `jcli` relies on the default ad-hoc
+code identity that `go build` produces. The token lives in the login Keychain, and
+its trusted-app ACL is bound to that ad-hoc identity, so the binary that created
+the item reads it back silently. Because the ad-hoc cdhash changes on every
+rebuild, macOS shows a one-time "Allow / Always Allow" prompt (naming "Jenkins
+CLI") after each rebuild/reinstall; click **Always Allow** once — or run
+`jcli logout && jcli login` to recreate the item cleanly under the new identity.
+This per-rebuild prompt is the accepted trade-off for not maintaining a cert.
 
 ## License
 
