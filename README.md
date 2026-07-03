@@ -54,10 +54,20 @@ After installing, run `jcli install-skill` to write the bundled skill to
 `~/.claude/skills/jenkins-cli` (pass `--to <path>` to target another `.claude`
 folder).
 
+### Install with Homebrew
+
+```bash
+brew install avitsrimer/apps/jcli
+```
+
+Tagged releases publish a cask to the [`avitsrimer/homebrew-apps`](https://github.com/avitsrimer/homebrew-apps)
+tap. The cask strips the Gatekeeper quarantine on install, so no `xattr` step is
+needed — then run `jcli install-skill` and `jcli --version`. (macOS arm64 only.)
+
 ### Install from a release
 
 Tagged versions publish a macOS arm64 archive to GitHub Releases. To install
-without cloning:
+without cloning (manual alternative to Homebrew):
 
 ```bash
 # download jcli_<version>_darwin_arm64.tar.gz from the Releases page, then:

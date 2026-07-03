@@ -72,8 +72,14 @@ GitHub Releases via the built-in `GITHUB_TOKEN` (same-repo, no PAT). The version
 stamped through `-X github.com/avitsrimer/jcli/internal/cli.version` (the same symbol
 `make build` stamps with `git describe`). Released binaries are unsigned/ad-hoc, so a
 downloaded archive is Gatekeeper-quarantined — users run
-`xattr -d com.apple.quarantine jcli` after extracting. Homebrew is deferred (a source
-tap needs a separate repo + PAT).
+`xattr -d com.apple.quarantine jcli` after extracting.
+
+The release also publishes a Homebrew **cask** to the `avitsrimer/homebrew-apps` tap
+(`brew install avitsrimer/apps/jcli`) via `homebrew_casks` in `.goreleaser.yml` —
+`brews` is deprecated (removed in goreleaser v2.16). The cross-repo push uses a
+fine-grained PAT in the `HOMEBREW_TAP_TOKEN` secret (the built-in `GITHUB_TOKEN`
+can't push to another repo). The cask's post-install hook runs `xattr -dr` so
+brew-installed binaries skip the Gatekeeper quarantine automatically.
 
 `.golangci.yml` (golangci-lint v2, derived from `umputun/revdiff`) drives both CI
 and `make lint`; the target sets `GOTOOLCHAIN=local` so local lint matches CI's

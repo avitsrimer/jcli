@@ -16,3 +16,21 @@ archives:
   - formats:
       - tar.gz
     name_template: "jcli_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+homebrew_casks:
+  - repository:
+      owner: avitsrimer
+      name: homebrew-apps
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Casks
+    homepage: "https://github.com/avitsrimer/jcli"
+    description: "General-purpose macOS Jenkins CLI with Keychain-backed credentials"
+    # the binary is unsigned/ad-hoc, so a downloaded cask is Gatekeeper-quarantined;
+    # strip the quarantine attribute on install so `jcli` runs without manual xattr.
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/jcli"]
+          end
