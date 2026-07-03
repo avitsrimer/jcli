@@ -10,8 +10,8 @@ func TestOSStatusHint(t *testing.T) {
 		status int
 		want   string
 	}{
-		{"unsigned-binary status decodes to a sign hint", errSecMissingEntitlement,
-			" (errSecMissingEntitlement: the jcli binary must be code-signed with a real identity, not ad-hoc — run 'make sign')"},
+		{"missing-entitlement status decodes to a safety-net hint", errSecMissingEntitlement,
+			" (errSecMissingEntitlement: unexpected for the file-based login keychain)"},
 		{"unknown status has no hint", -1, ""},
 		{"success has no hint", 0, ""},
 		{"item-not-found has no hint here", errSecItemNotFound, ""},

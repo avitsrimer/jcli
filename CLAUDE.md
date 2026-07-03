@@ -6,12 +6,13 @@ Guidance for Claude Code when working in this repository.
 
 `jcli` — a general-purpose macOS Jenkins CLI in Go. Multi-profile support,
 Keychain-backed credentials authorized by the login-keychain trusted-app ACL
-(bound to the signed binary's DR) and served through an on-demand in-memory agent,
-a per-profile cached job/param map, and commands to list/inspect/trigger Jenkins
-jobs. See **`DESIGN.md`** (repo root) for the full, brainstorm-validated
-architecture — it is the source of truth for all design decisions.
+(bound to the binary's ad-hoc code identity) and served through an on-demand
+in-memory agent, a per-profile cached job/param map, and commands to
+list/inspect/trigger Jenkins jobs. See **`DESIGN.md`** (repo root) for the full,
+brainstorm-validated architecture — it is the source of truth for all design
+decisions.
 
-Single signed binary, two modes: the `jcli` CLI and the hidden `jcli __agent`
+Single binary, two modes: the `jcli` CLI and the hidden `jcli __agent`
 credential agent. Config in `~/.config/jcli/config.json` (no secrets); cache in
 `~/.cache/jcli/<profile>/jobs.json`; the token only ever lives in the macOS
 Keychain or the running agent's memory.
@@ -44,18 +45,14 @@ make test        # go test -race ./...
 make lint        # GOTOOLCHAIN=local golangci-lint run (config: .golangci.yml)
 make fmt         # gofmt -s -w . && goimports -w .
 make cross-build # GOOS=linux CGO_ENABLED=0 go build/vet ./... (keychain stub)
-make cert        # create/reuse the self-signed code-signing identity (idempotent)
-make sign        # codesign --options runtime with the self-signed identity; prints the DR
-make show-dr     # print the binary's designated requirement (codesign -d -r-)
-make install     # sign + install to ~/bin (override INSTALL_DIR=/usr/local/bin)
+make install     # build + install to ~/bin (override INSTALL_DIR=/usr/local/bin)
 ```
 
 The credential agent is a long-lived detached process spawned from the binary
 (via `os.Executable()`, an absolute path) on first credential use. It holds the
-old code and the token in memory, so a rebuilt/re-signed binary must replace it —
-otherwise the next CLI reconnects to the stale agent whose DR no longer matches
-the keychain ACL (e.g. an old agent built before this binary was signed). `build`
-therefore depends
+old binary's code and the token in memory, so a rebuilt binary must replace it —
+otherwise the next CLI reconnects to the stale agent still running the old code.
+`build` therefore depends
 on a `stop-agent` target that `pkill`s the agent at this binary's absolute path
 (an installed copy at a different path is left alone); `install` additionally
 stops the agent at `$(INSTALL_DIR)/jcli`. A fresh agent spawns on demand at the
@@ -67,8 +64,8 @@ build.
 GitHub Actions (`.github/workflows/ci.yml`) runs three jobs: `build` on
 `macos-latest` (`make test` + `golangci-lint`, because the cgo keychain code only
 compiles on darwin), `cross-build` on `ubuntu-latest` (`make cross-build`), and
-`shellcheck` over `scripts/`. Code signing / release stay manual — the keychain
-ACL is bound to the local self-signed identity and cannot be reproduced in CI.
+`shellcheck` over `scripts/`. Release stays manual — the keychain ACL is bound to
+the binary's local ad-hoc code identity, which CI cannot reproduce.
 
 `.golangci.yml` (golangci-lint v2, derived from `umputun/revdiff`) drives both CI
 and `make lint`; the target sets `GOTOOLCHAIN=local` so local lint matches CI's
@@ -87,33 +84,22 @@ pinned toolchain. Deliberate config choices — don't undo them without reason:
 - The cgo `import "C"` / `C.getItem` `//nolint:gocritic` directives suppress
   `dupImport`/`dupSubExpr` false positives from the cgo pseudo-import.
 
-## Code signing (stable identity — do NOT regenerate the cert)
+## Keychain trust (ad-hoc identity)
 
-The Keychain item's trusted-app ACL — which authorizes the signed binary to read
-the item silently — is bound to the signing identity's **designated requirement
-(DR)**, which is derived from the self-signed certificate. This is an ACL trust,
-**not** an entitlement (the item lives in the file-based keychain, so no
-`keychain-access-groups` entitlement is involved). The cert common-name is
-`jcli Code Signing` (the `SIGN_ID` Makefile var; it must match the CN created by
-`scripts/make-cert.sh`).
+There is no managed code-signing certificate. `jcli` relies on the default ad-hoc
+code identity that `go build` produces on Apple Silicon. The Keychain item's
+trusted-app ACL — which authorizes silent reads — is bound to the ad-hoc code
+identity of the binary that created the item. This is an ACL trust, **not** an
+entitlement (the item lives in the file-based login keychain, so no
+`keychain-access-groups` entitlement is involved).
 
-- `scripts/make-cert.sh` is idempotent: if the cert already exists it exits 0 and
-  reuses it. **Never regenerate it** — a new cert yields a new DR, which no longer
-  matches the keychain ACL: reads from the new binary hit the keychain
-  "Allow / Always Allow" authorization prompt instead of being silent, and any
-  prior "Always Allow" trust is lost (the authorization prompt names "Jenkins CLI",
-  the item's service).
-- A rebuild + re-sign with the *same* cert must produce a **stable** DR. codesign
-  derives a **leaf-certificate-hash** form for a self-signed identity (not the
-  `certificate leaf[subject.CN]` form):
-  `identifier jcli and certificate leaf = H"<sha1-of-the-cert>"`. The recorded DR
-  for the current dev machine's identity (verified stable across rebuild + re-sign)
-  is hash `700e7dfe165b8403e6e6c9e4d5690df71b93e794` — but this is **per-identity,
-  not a shared constant**: anyone who runs `make cert` gets their own cert with its
-  own hash. The hash is a public certificate fingerprint (safe to record); it stays
-  stable while the same cert is reused and changes only if the cert is regenerated —
-  which is why the cert must never be regenerated. Run `make show-dr` after the
-  first sign to capture the DR for whatever identity is in use.
+The ad-hoc cdhash changes on every rebuild, so a freshly built/installed binary no
+longer matches the item's ACL: the first token read hits the keychain
+"Allow / Always Allow" authorization prompt (which names "Jenkins CLI", the item's
+service) instead of being silent. Click **Always Allow** once — or run
+`jcli logout && jcli login` to recreate the item under the new identity. This
+one-prompt-per-rebuild behavior is the accepted trade-off for dropping cert
+management.
 
 ## Go conventions (from umputun/tg-spam)
 
@@ -165,16 +151,16 @@ honor them when touching deps, the cgo files, or the agent tests.
 - **The keychain item is plain (ACL-authorized), not data-protection.** The token
   is a generic-password item in the default/login keychain with no
   `kSecAttrAccessControl` and no `kSecAttrAccessible` (it defaults to
-  `kSecAttrAccessibleWhenUnlocked`); the signed binary's DR in the item's
-  trusted-app ACL is the access boundary. With the file-based keychain, `-34018`
-  (`errSecMissingEntitlement`) should no longer occur — the `osStatusHint` decoder
-  remains as a harmless safety net.
+  `kSecAttrAccessibleWhenUnlocked`); the ad-hoc code identity of the binary that
+  created the item, recorded in the item's trusted-app ACL, is the access boundary.
+  With the file-based keychain, `-34018` (`errSecMissingEntitlement`) should not
+  occur — the `osStatusHint` decoder remains as a harmless safety net.
 - **Peer-UID rejection, the keychain ACL authorization prompt, and screen-lock
   flush** cannot be exercised headlessly (single-UID test env, real keychain UI,
   CFRunLoop) — they are verified manually (see the plan's Post-Completion). The ACL
-  prompt only appears when the signing identity / DR changes; the same signed
-  binary reads silently. Unit tests cover only the accept/extraction path and the
-  `flush` mechanism the lock callback reuses.
+  prompt only appears when the binary's ad-hoc code identity changes (e.g. after a
+  rebuild); the binary that created the item reads silently. Unit tests cover only
+  the accept/extraction path and the `flush` mechanism the lock callback reuses.
 
 ## Exit codes
 

@@ -15,12 +15,13 @@ var ErrNoToken = errors.New("no token stored for profile")
 // keychainStore reads and writes per-profile Jenkins tokens in the platform secret store.
 // The interface is deliberately platform-neutral — no cgo types appear in the signatures — so the
 // non-darwin stub and the generated moq mock stay clean. On darwin, the item's trusted-application
-// ACL is bound to the signed binary: the same signed binary reads it back without a prompt, while a
-// binary with a different signature triggers the standard keychain authorization prompt.
+// ACL is bound to the ad-hoc code identity of the binary that created it: that same binary reads it
+// back without a prompt, while a binary with a different code identity (e.g. after a rebuild, since
+// the ad-hoc cdhash changes) triggers the standard keychain "Allow / Always Allow" prompt.
 type keychainStore interface {
 	// Set stores token for profile, creating or replacing the item without prompting.
 	Set(profile, token string) error
-	// Get returns the token for profile; on darwin the signed binary's ACL trust gates the read.
+	// Get returns the token for profile; on darwin the item's ACL trust of the ad-hoc identity gates the read.
 	Get(profile string) (string, error)
 	// Delete removes the item for profile; a missing item is not an error.
 	Delete(profile string) error
