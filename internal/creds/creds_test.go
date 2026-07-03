@@ -225,6 +225,10 @@ func TestClient_MalformedResponse(t *testing.T) {
 			return
 		}
 		defer func() { _ = conn.Close() }()
+		// drain the client's request first so its write completes before we close —
+		// closing early races the client's send, surfacing the error at the write
+		// ("send request") instead of at the malformed-response decode ("read response").
+		_, _ = conn.Read(make([]byte, 256))
 		_, _ = conn.Write([]byte("this is not json\n"))
 	}()
 
