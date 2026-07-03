@@ -54,6 +54,24 @@ After installing, run `jcli install-skill` to write the bundled skill to
 `~/.claude/skills/jenkins-cli` (pass `--to <path>` to target another `.claude`
 folder).
 
+### Install from a release
+
+Tagged versions publish a macOS arm64 archive to GitHub Releases. To install
+without cloning:
+
+```bash
+# download jcli_<version>_darwin_arm64.tar.gz from the Releases page, then:
+tar -xzf jcli_<version>_darwin_arm64.tar.gz
+# the binary is unsigned/ad-hoc, so Gatekeeper quarantines the download — clear it:
+xattr -d com.apple.quarantine jcli
+mkdir -p ~/bin && mv jcli ~/bin/
+jcli install-skill        # write the bundled skill
+jcli --version            # confirm the installed build
+```
+
+`jcli --version` prints the build revision (a `git describe` value for local
+builds, the tag for released binaries).
+
 ## Global options
 
 These apply to every command:
@@ -63,6 +81,7 @@ These apply to every command:
 | `--profile=<name>` | Profile to use (overrides `JCLI_PROFILE` and the default). |
 | `--json`       | Emit machine-readable JSON output.                           |
 | `-v, --verbose`| Verbose logging.                                             |
+| `--version`    | Print the build version and exit (clean exit).               |
 | `-h, --help`   | Show help (clean exit).                                      |
 
 Profile resolution order: `--profile` → `JCLI_PROFILE` → the configured default.

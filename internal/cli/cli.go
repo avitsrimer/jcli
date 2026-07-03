@@ -25,6 +25,10 @@ import (
 // moq is pinned to v0.5.3: v0.7+ requires Go 1.26 while this module targets Go 1.24.
 //go:generate go run github.com/matryer/moq@v0.5.3 -out jenkins_mock.go . jenkinsClient
 
+// version is the build revision, set at link time via
+// -X github.com/avitsrimer/jcli/internal/cli.version=<rev>; "unknown" for un-stamped builds.
+var version = "unknown"
+
 // exit codes per the design contract; the CLI maps every command outcome onto one of these.
 const (
 	exitOK        = 0
@@ -121,6 +125,7 @@ type globalOpts struct {
 	Profile string `long:"profile" description:"profile name to use (overrides JCLI_PROFILE and default)"`
 	JSON    bool   `long:"json" description:"emit machine-readable JSON output"`
 	Verbose bool   `short:"v" long:"verbose" description:"verbose logging"`
+	Version bool   `long:"version" description:"print version and exit"`
 }
 
 // newApp constructs an app with the real config + creds wiring and a factory that builds live
@@ -238,6 +243,14 @@ func Main(args []string, stdout, stderr io.Writer) int {
 // run builds the go-flags parser, lifts --param-* out of argv, parses the rest, and dispatches to
 // the selected subcommand. It returns the process exit code.
 func (a *app) run(args []string) int {
+	// pre-parse pass: --version is handled here, before the parser is built. with subcommands
+	// registered, parser.ParseArgs returns flags.ErrCommandRequired for a bare "jcli --version"
+	// and handleParseError treats only ErrHelp as clean — so a post-parse check would exit 1.
+	if hasVersionFlag(args) {
+		fmt.Fprintln(a.stdout, version)
+		return exitOK
+	}
+
 	// pre-parse pass: lift --param-<name>=val out before go-flags sees argv (build consumes these).
 	params, rest := extractParams(args)
 	a.buildParams = params

@@ -4,6 +4,9 @@ INSTALL_DIR ?= $(HOME)/bin
 
 GO ?= GOTOOLCHAIN=local go
 
+# build revision stamped into internal/cli.version via -ldflags -X; "dev" when git is unavailable.
+REV := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+
 # absolute path of the built binary, used to target only the agent spawned from
 # this binary (an installed copy at a different path is left alone).
 BIN_ABS := $(abspath $(BINARY))
@@ -19,7 +22,7 @@ stop-agent:
 	@pkill -f '$(BIN_ABS) __agent' 2>/dev/null && echo "stopped stale agent ($(BINARY) __agent)" || true
 
 build: stop-agent
-	$(GO) build -o $(BINARY) $(PKG)
+	$(GO) build -ldflags "-X github.com/avitsrimer/jcli/internal/cli.version=$(REV)" -o $(BINARY) $(PKG)
 
 test:
 	$(GO) test -race ./...
