@@ -64,8 +64,16 @@ build.
 GitHub Actions (`.github/workflows/ci.yml`) runs three jobs: `build` on
 `macos-latest` (`make test` + `golangci-lint`, because the cgo keychain code only
 compiles on darwin), `cross-build` on `ubuntu-latest` (`make cross-build`), and
-`shellcheck` over any repo shell scripts. Release stays manual — the keychain ACL is bound to
-the binary's local ad-hoc code identity, which CI cannot reproduce.
+`shellcheck` over any repo shell scripts.
+
+`.github/workflows/release.yml` runs GoReleaser (`.goreleaser.yml`) on `macos-latest`
+when a `v*` tag is pushed, publishing a darwin/arm64 tar.gz archive + checksums to
+GitHub Releases via the built-in `GITHUB_TOKEN` (same-repo, no PAT). The version is
+stamped through `-X github.com/avitsrimer/jcli/internal/cli.version` (the same symbol
+`make build` stamps with `git describe`). Released binaries are unsigned/ad-hoc, so a
+downloaded archive is Gatekeeper-quarantined — users run
+`xattr -d com.apple.quarantine jcli` after extracting. Homebrew is deferred (a source
+tap needs a separate repo + PAT).
 
 `.golangci.yml` (golangci-lint v2, derived from `umputun/revdiff`) drives both CI
 and `make lint`; the target sets `GOTOOLCHAIN=local` so local lint matches CI's

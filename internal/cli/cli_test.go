@@ -148,4 +148,14 @@ func TestRunDispatch(t *testing.T) {
 		assert.Equal(t, exitOK, code)
 		assert.NotEmpty(t, out.String())
 	})
+
+	t.Run("version prints the version and exits ok with no subcommand", func(t *testing.T) {
+		a, out, errBuf := newTestApp(&config.Config{})
+		code := a.run([]string{"--version"})
+		// the pre-parse scan must handle --version without a subcommand, so it never hits the
+		// flags.ErrCommandRequired/exit-1 path (which the naive post-parse check would).
+		assert.Equal(t, exitOK, code)
+		assert.Contains(t, out.String(), version)
+		assert.Empty(t, errBuf.String())
+	})
 }

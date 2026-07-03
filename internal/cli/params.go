@@ -33,6 +33,21 @@ func extractParams(argv []string) (params map[string]string, rest []string) {
 	return params, rest
 }
 
+// hasVersionFlag reports whether argv contains the --version flag before any "--" terminator. It
+// mirrors the extractParams pre-parse pass so --version is handled without a registered subcommand
+// (go-flags would otherwise return ErrCommandRequired for a bare "jcli --version").
+func hasVersionFlag(argv []string) bool {
+	for _, arg := range argv {
+		if arg == "--" {
+			return false
+		}
+		if arg == "--version" {
+			return true
+		}
+	}
+	return false
+}
+
 // splitParam reports whether arg is a --param-<name>=<value> argument and, if so, returns the name
 // and value split on the first '='. A bare --param- prefix without a name, or a prefix with no '=',
 // is not a match.

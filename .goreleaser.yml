@@ -1,0 +1,18 @@
+version: 2
+
+builds:
+  - main: ./cmd/jcli
+    binary: jcli
+    goos:
+      - darwin
+    goarch:
+      - arm64
+    env:
+      - CGO_ENABLED=1
+    ldflags:
+      - -s -w -X github.com/avitsrimer/jcli/internal/cli.version={{.Version}}
+
+archives:
+  - formats:
+      - tar.gz
+    name_template: "jcli_{{ .Version }}_{{ .Os }}_{{ .Arch }}"

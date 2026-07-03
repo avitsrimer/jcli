@@ -94,3 +94,23 @@ func TestExtractParams(t *testing.T) {
 		})
 	}
 }
+
+func TestHasVersionFlag(t *testing.T) {
+	tests := []struct {
+		name string
+		argv []string
+		want bool
+	}{
+		{"present alone", []string{"--version"}, true},
+		{"present before a command", []string{"--version", "list"}, true},
+		{"absent", []string{"list", "--json"}, false},
+		{"empty", nil, false},
+		{"after the -- terminator does not count", []string{"build", "--", "--version"}, false},
+		{"not an exact-token match", []string{"--param-x=--version"}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, hasVersionFlag(tt.argv))
+		})
+	}
+}
