@@ -22,6 +22,9 @@ var _ jenkinsClient = &jenkinsClientMock{}
 //			BuildFunc: func(ctx context.Context, jobPath string, params map[string]string) (string, error) {
 //				panic("mock out the Build method")
 //			},
+//			BuildParamsFunc: func(ctx context.Context, buildURL string) ([]jenkins.BuildParam, error) {
+//				panic("mock out the BuildParams method")
+//			},
 //			BuildResultFunc: func(ctx context.Context, buildURL string) (jenkins.BuildResult, error) {
 //				panic("mock out the BuildResult method")
 //			},
@@ -64,6 +67,9 @@ var _ jenkinsClient = &jenkinsClientMock{}
 type jenkinsClientMock struct {
 	// BuildFunc mocks the Build method.
 	BuildFunc func(ctx context.Context, jobPath string, params map[string]string) (string, error)
+
+	// BuildParamsFunc mocks the BuildParams method.
+	BuildParamsFunc func(ctx context.Context, buildURL string) ([]jenkins.BuildParam, error)
 
 	// BuildResultFunc mocks the BuildResult method.
 	BuildResultFunc func(ctx context.Context, buildURL string) (jenkins.BuildResult, error)
@@ -108,6 +114,13 @@ type jenkinsClientMock struct {
 			JobPath string
 			// Params is the params argument value.
 			Params map[string]string
+		}
+		// BuildParams holds details about calls to the BuildParams method.
+		BuildParams []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// BuildURL is the buildURL argument value.
+			BuildURL string
 		}
 		// BuildResult holds details about calls to the BuildResult method.
 		BuildResult []struct {
@@ -184,6 +197,7 @@ type jenkinsClientMock struct {
 		}
 	}
 	lockBuild              sync.RWMutex
+	lockBuildParams        sync.RWMutex
 	lockBuildResult        sync.RWMutex
 	lockBuildStatus        sync.RWMutex
 	lockConsoleProgressive sync.RWMutex
@@ -234,6 +248,42 @@ func (mock *jenkinsClientMock) BuildCalls() []struct {
 	mock.lockBuild.RLock()
 	calls = mock.calls.Build
 	mock.lockBuild.RUnlock()
+	return calls
+}
+
+// BuildParams calls BuildParamsFunc.
+func (mock *jenkinsClientMock) BuildParams(ctx context.Context, buildURL string) ([]jenkins.BuildParam, error) {
+	if mock.BuildParamsFunc == nil {
+		panic("jenkinsClientMock.BuildParamsFunc: method is nil but jenkinsClient.BuildParams was just called")
+	}
+	callInfo := struct {
+		Ctx      context.Context
+		BuildURL string
+	}{
+		Ctx:      ctx,
+		BuildURL: buildURL,
+	}
+	mock.lockBuildParams.Lock()
+	mock.calls.BuildParams = append(mock.calls.BuildParams, callInfo)
+	mock.lockBuildParams.Unlock()
+	return mock.BuildParamsFunc(ctx, buildURL)
+}
+
+// BuildParamsCalls gets all the calls that were made to BuildParams.
+// Check the length with:
+//
+//	len(mockedjenkinsClient.BuildParamsCalls())
+func (mock *jenkinsClientMock) BuildParamsCalls() []struct {
+	Ctx      context.Context
+	BuildURL string
+} {
+	var calls []struct {
+		Ctx      context.Context
+		BuildURL string
+	}
+	mock.lockBuildParams.RLock()
+	calls = mock.calls.BuildParams
+	mock.lockBuildParams.RUnlock()
 	return calls
 }
 
