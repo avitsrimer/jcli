@@ -13,7 +13,7 @@ Drive Jenkins from the terminal with `jcli`. Requires `jcli` installed (`make in
 - `jcli list [filter]` — list cached jobs, optional name filter.
 - `jcli get <job>` — show a job's details and parameters.
 - `jcli build <job> --param-<name>=val [--wait]` — trigger a parameterized build; `--wait` polls to completion.
-- `jcli status [job [number]] [--wait]` — no args: list builds running right now; `<job>`: is it running (and its running build's stages); `<job> <number>`: that build's stage status; `--wait` follows a running build. `--logs` (job+number only) shows the console instead of stages.
+- `jcli status [job [number]] [--wait]` — no args: list builds running right now; `<job>`: is it running (and its running build's stages); `<job> <number>`: that build's stage status; `--wait` follows a running build. `--logs` (job+number only) shows the console instead of stages; `--params` (job+number only, not with `--logs`) shows the parameter values that build ran with.
 - `jcli logs <job> [number] [--wait]` — print a build's console output; `<job>` uses the latest build, `<job> <number>` a specific one; `--wait` follows live. `build --logs` streams the console straight from a trigger (implies `--wait`).
 - `jcli profile` — list / use / rm profiles.
 

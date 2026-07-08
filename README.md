@@ -177,6 +177,9 @@ jcli status <job-name> 42
 # follow a running build's stages to completion
 jcli status <job-name> --wait
 
+# show the parameter values a specific build ran with
+jcli status <job-name> 42 --params
+
 # print a build's console output (latest build, or a specific number)
 jcli logs <job-name>
 jcli logs <job-name> 42
@@ -249,6 +252,16 @@ build as normal output and still exits `0`; only a missing job/build (exit `3`)
 or auth failure (exit `2`) is non-zero. The same stage glyphs and stage-view
 fallback described above apply, and `--json` emits a structured document.
 
+`--params` shows the parameters a specific build **ran with** — the actual values
+it was triggered with, read from the build record (not the job's parameter
+*definitions*, which `get <job>` reports). Like `--logs`, it is valid **only** at
+the build-id level (job *and* number) and is **mutually exclusive with `--logs`**.
+It prints a `<job> #<n>  <RESULT>` header followed by an aligned `name = value`
+block, or `params:    (none)` for a build with no parameters. Under `--json` it
+emits a `{job, build, params}` document where `params` is a `name → value` object.
+`--wait` has no effect with `--params` (a build's parameters are fixed at trigger
+time), so it renders once.
+
 ### `logs` and `--logs`
 
 `logs` prints a build's Jenkins console output:
@@ -283,7 +296,7 @@ a missing build is exit 3 and an auth failure exit 2.
 | `list [pattern]` | List cached jobs, optionally filtered (`--refresh` to re-crawl).  |
 | `get <job>`      | Show a job's details and parameters (live read).                  |
 | `build <job>`    | Trigger a build (`--param-<name>=val`, `--wait` to poll to completion, `--no-stages` to suppress stage-view lines, `--logs` to stream the console). |
-| `status [job [number]]` | Show running builds (no args), a job's run state, or a build's stage status (`--wait` to follow, `--logs` for the build's console at the job+number level). |
+| `status [job [number]]` | Show running builds (no args), a job's run state, or a build's stage status (`--wait` to follow, `--logs` for the build's console at the job+number level, `--params` for the values a build ran with). |
 | `logs <job> [number]` | Print a build's console output — latest build (job only) or a specific number (`--wait` to follow live). |
 | `dump`           | Emit the full cached job map as formatted JSON (`--refresh` to re-crawl). |
 | `install-skill`  | Install the bundled Claude skill to `~/.claude/skills/jenkins-cli` (`--to` to override). |
