@@ -108,9 +108,10 @@ func (c *buildCmd) Execute(args []string) error {
 // a build number it shows that build's stage status. --wait follows a running/target build to
 // terminal state.
 type statusCmd struct {
-	app  *app
-	Wait bool `long:"wait" description:"follow the target build's stage status to completion"`
-	Logs bool `long:"logs" description:"show the build's console output instead of stages (requires a job and build number)"`
+	app    *app
+	Wait   bool `long:"wait" description:"follow the target build's stage status to completion"`
+	Logs   bool `long:"logs" description:"show the build's console output instead of stages (requires a job and build number)"`
+	Params bool `long:"params" description:"show the parameters a specific build ran with (requires a job and build number)"`
 }
 
 // Execute implements flags.Commander. Positionals are [job [number]]; none means "running now".

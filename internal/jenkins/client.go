@@ -183,8 +183,9 @@ func (c *Client) BuildStatus(ctx context.Context, buildURL string) (Build, error
 
 // BuildParams reads the parameter values a specific build actually ran with, by its absolute URL,
 // flattening the build's ParametersAction into ordered {Name, Value} pairs (values stringified via
-// stringifyValue). Returns an empty slice for an unparameterized build and ErrNotFound when the
-// build is absent.
+// stringifyValue). Parameters are deduped by name (last value wins, first-seen position kept) so a
+// build carrying the same parameter across multiple actions renders once and matches the --json map.
+// Returns an empty slice for an unparameterized build and ErrNotFound when the build is absent.
 func (c *Client) BuildParams(ctx context.Context, buildURL string) ([]BuildParam, error) {
 	const tree = "actions[parameters[name,value]]"
 	var resp buildParamsResponse
@@ -193,9 +194,16 @@ func (c *Client) BuildParams(ctx context.Context, buildURL string) ([]BuildParam
 		return nil, fmt.Errorf("build params %s: %w", buildURL, err)
 	}
 	var out []BuildParam
+	pos := map[string]int{}
 	for _, action := range resp.Actions {
 		for _, p := range action.Parameters {
-			out = append(out, BuildParam{Name: p.Name, Value: stringifyValue(p.Value)})
+			value := stringifyValue(p.Value)
+			if i, seen := pos[p.Name]; seen {
+				out[i].Value = value
+				continue
+			}
+			pos[p.Name] = len(out)
+			out = append(out, BuildParam{Name: p.Name, Value: value})
 		}
 	}
 	return out, nil

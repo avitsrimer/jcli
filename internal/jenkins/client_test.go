@@ -429,6 +429,37 @@ func TestClient_BuildParams(t *testing.T) {
 		assert.Empty(t, params)
 	})
 
+	t.Run("duplicate parameter across actions is deduped, last value wins in first position", func(t *testing.T) {
+		// two actions each carry a "raven_branch" parameter (a rebuild/plugin quirk); the human slice
+		// must list it once at its first position with the last-seen value, matching the --json map.
+		const body = `{
+		  "actions": [
+		    {"_class": "hudson.model.ParametersAction",
+		     "parameters": [
+		       {"name": "raven_branch", "value": "master"},
+		       {"name": "where_to_deploy", "value": "uat-2"}
+		     ]},
+		    {"_class": "hudson.model.ParametersAction",
+		     "parameters": [
+		       {"name": "raven_branch", "value": "hotfix"}
+		     ]}
+		  ]
+		}`
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte(body))
+		}))
+		defer srv.Close()
+
+		c := New(srv.URL, "alice", "tok", srv.Client())
+		params, err := c.BuildParams(context.Background(), srv.URL+"/job/Raven/1/")
+		require.NoError(t, err)
+		require.Len(t, params, 2)
+		assert.Equal(t, "raven_branch", params[0].Name)
+		assert.Equal(t, "hotfix", params[0].Value)
+		assert.Equal(t, "where_to_deploy", params[1].Name)
+		assert.Equal(t, "uat-2", params[1].Value)
+	})
+
 	t.Run("absent build surfaces ErrNotFound", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusNotFound)
@@ -439,6 +470,18 @@ func TestClient_BuildParams(t *testing.T) {
 		_, err := c.BuildParams(context.Background(), srv.URL+"/job/Raven/999/")
 		require.Error(t, err)
 		assert.ErrorIs(t, err, ErrNotFound)
+	})
+
+	t.Run("malformed body is a decode error", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte(`{"actions": [ not json`))
+		}))
+		defer srv.Close()
+
+		c := New(srv.URL, "alice", "tok", srv.Client())
+		_, err := c.BuildParams(context.Background(), srv.URL+"/job/Raven/1/")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "decode response")
 	})
 }
 
