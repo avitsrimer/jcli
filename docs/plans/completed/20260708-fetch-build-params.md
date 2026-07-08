@@ -7,8 +7,8 @@
 - **Problem it solves:** today jcli can only read a job's parameter *definitions*
   (`get <job>` → defaults/choices). There is no way to see what a past build was actually
   triggered with, so an agent has to grep the console log to recover e.g. the branch. This
-  is the exact pain in the feature request (Dave, Slack `1783520986.899019`): *"it's combing
-  through the output logs to find the branch when they should be fetchable from the build."*
+  is the exact pain in the originating feature request: the parameters are being recovered by
+  combing through the output logs when they should be fetchable directly from the build record.
 - **Integration:** `status` already resolves a job + build number and renders a build's
   header line + stages. `--params` reuses that resolution and the `buildURLFor` helper,
   swapping the stage block for a parameter block (the same way `--logs` swaps in the console).
@@ -85,7 +85,7 @@
   The extra round-trip is negligible for a CLI. (Merging into one richer `tree=` is a possible
   later optimization, not worth the coupling now.)
 - **JSON `params` as an object map `name→value`:** friendliest for `jq`/agents ("what was
-  `raven_branch`?") and mirrors how `--param-<name>=val` is supplied to `build`. Jenkins param
+  `branch`?") and mirrors how `--param-<name>=val` is supplied to `build`. Jenkins param
   names are unique per job, so the map loses nothing; human output preserves Jenkins' order.
 
 ## Technical Details
@@ -95,12 +95,12 @@
       {},
       { "_class": "hudson.model.ParametersAction",
         "parameters": [
-          { "name": "raven_branch",    "value": "master" },
-          { "name": "where_to_deploy", "value": "uat-2"  } ] },
+          { "name": "branch",      "value": "main"    },
+          { "name": "environment", "value": "staging" } ] },
       {} ] }
   ```
   Most action entries have no `parameters` key → decode to an empty slice and are skipped.
-  `value` is decoded as `any` (a Boolean value arrives as `true`, a String as `"master"`),
+  `value` is decoded as `any` (a Boolean value arrives as `true`, a String as `"main"`),
   then run through `stringifyValue`. String/Boolean are the params in scope; an exotic type
   (file/credentials, decoded as a nested object) renders via `stringifyValue`'s `%v` fallback
   rather than erroring — acceptable, and the tests cover only String/Boolean.
@@ -114,10 +114,10 @@
   ```
 - **Human output:**
   ```
-  UAT3-Raven-Deployment-pipeline #1828  SUCCESS
+  deploy-pipeline #42  SUCCESS
   params:
-    raven_branch    = master
-    where_to_deploy = uat-2
+    branch      = main
+    environment = staging
   ```
   (running target → `#<n>  RUNNING  (elapsed …)`; no params → `params:    (none)`).
   Alignment: compute the max param-name width in `renderBuildParams` and pad with
@@ -127,10 +127,10 @@
   `encoding/json` emits keys in **alphabetical** order (deterministic — good for stable test
   assertions), *not* Jenkins insertion order. Only human output preserves Jenkins' order.
   ```json
-  { "job": "UAT3-Raven-Deployment-pipeline",
-    "build": { "number": 1828, "url": "…", "building": false,
-               "result": "SUCCESS", "timestamp": 1783520986000 },
-    "params": { "raven_branch": "master", "where_to_deploy": "uat-2" } }
+  { "job": "deploy-pipeline",
+    "build": { "number": 42, "url": "…", "building": false,
+               "result": "SUCCESS", "timestamp": 1717000000000 },
+    "params": { "branch": "main", "environment": "staging" } }
   ```
 - **Exit codes:** unchanged — missing build → `3` (`ErrNotFound`), auth → `2`, else `0`.
 
@@ -221,9 +221,9 @@
 *Items requiring manual intervention or external systems — informational only.*
 
 **Manual verification:**
-- Smoke against real Jenkins (e.g. the UAT3 profile from the request):
-  `jcli status UAT3-Raven-Deployment-pipeline 1828 --params` and confirm it matches the
-  build's `…/1828/parameters/` page Dave linked. Repeat with `--json | jq .params`.
+- Smoke against a real Jenkins instance: `jcli status <job> <number> --params` and confirm the
+  output matches that build's `…/<number>/parameters/` page in the Jenkins UI. Repeat with
+  `--json | jq .params`.
 - Sanity-check a freestyle/non-parameterized build renders `(none)` rather than erroring.
 
 **Possible follow-ups (out of scope, note only):**
