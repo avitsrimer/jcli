@@ -181,6 +181,26 @@ func (c *Client) BuildStatus(ctx context.Context, buildURL string) (Build, error
 	return b, nil
 }
 
+// BuildParams reads the parameter values a specific build actually ran with, by its absolute URL,
+// flattening the build's ParametersAction into ordered {Name, Value} pairs (values stringified via
+// stringifyValue). Returns an empty slice for an unparameterized build and ErrNotFound when the
+// build is absent.
+func (c *Client) BuildParams(ctx context.Context, buildURL string) ([]BuildParam, error) {
+	const tree = "actions[parameters[name,value]]"
+	var resp buildParamsResponse
+	endpoint := strings.TrimRight(buildURL, "/") + "/api/json?" + url.Values{"tree": {tree}}.Encode()
+	if err := c.getJSONURL(ctx, endpoint, &resp); err != nil {
+		return nil, fmt.Errorf("build params %s: %w", buildURL, err)
+	}
+	var out []BuildParam
+	for _, action := range resp.Actions {
+		for _, p := range action.Parameters {
+			out = append(out, BuildParam{Name: p.Name, Value: stringifyValue(p.Value)})
+		}
+	}
+	return out, nil
+}
+
 // RunningBuilds lists every currently-executing build across all nodes via /computer/api/json,
 // reading both the per-stage executors and the flyweight oneOffExecutors. Idle executors (nil
 // currentExecutable) are skipped and entries are deduped by build URL, preferring the

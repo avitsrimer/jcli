@@ -379,6 +379,69 @@ func TestClient_BuildStatus(t *testing.T) {
 	})
 }
 
+// buildParamsBody mirrors GET <buildURL>/api/json?tree=actions[parameters[name,value]]: a
+// ParametersAction (a String and a Boolean value) interleaved with empty action objects.
+const buildParamsBody = `{
+  "actions": [
+    {},
+    {"_class": "hudson.model.CauseAction"},
+    {
+      "_class": "hudson.model.ParametersAction",
+      "parameters": [
+        {"_class": "hudson.model.StringParameterValue", "name": "raven_branch", "value": "master"},
+        {"_class": "hudson.model.BooleanParameterValue", "name": "run_migrations", "value": true}
+      ]
+    },
+    {}
+  ]
+}`
+
+func TestClient_BuildParams(t *testing.T) {
+	t.Run("flattens parameters in order with stringified values", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			assert.Equal(t, "/job/Raven/1828/api/json", r.URL.Path)
+			assert.Equal(t, "actions[parameters[name,value]]", r.URL.Query().Get("tree"))
+			_, _ = w.Write([]byte(buildParamsBody))
+		}))
+		defer srv.Close()
+
+		c := New(srv.URL, "alice", "tok", srv.Client())
+		params, err := c.BuildParams(context.Background(), srv.URL+"/job/Raven/1828/")
+		require.NoError(t, err)
+		require.Len(t, params, 2)
+
+		assert.Equal(t, "raven_branch", params[0].Name)
+		assert.Equal(t, "master", params[0].Value)
+
+		assert.Equal(t, "run_migrations", params[1].Name)
+		assert.Equal(t, "true", params[1].Value)
+	})
+
+	t.Run("build with no parameters yields empty slice", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte(`{"actions":[{},{"_class":"hudson.model.CauseAction"}]}`))
+		}))
+		defer srv.Close()
+
+		c := New(srv.URL, "alice", "tok", srv.Client())
+		params, err := c.BuildParams(context.Background(), srv.URL+"/job/Free/3/")
+		require.NoError(t, err)
+		assert.Empty(t, params)
+	})
+
+	t.Run("absent build surfaces ErrNotFound", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer srv.Close()
+
+		c := New(srv.URL, "alice", "tok", srv.Client())
+		_, err := c.BuildParams(context.Background(), srv.URL+"/job/Raven/999/")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrNotFound)
+	})
+}
+
 func TestClient_RunningBuilds(t *testing.T) {
 	t.Run("collects executors, skips idle, dedupes preferring oneOff", func(t *testing.T) {
 		// a pipeline run appears both as a node-executor placeholder (no metadata) and as a
