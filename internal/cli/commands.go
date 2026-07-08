@@ -17,7 +17,13 @@ func (a *app) commands() []command {
 		{name: "logout", short: "remove stored credentials", data: &logoutCmd{app: a}},
 		{name: "list", short: "list jobs from the cached map", data: &listCmd{app: a}},
 		{name: "get", short: "show job details and params", data: &getCmd{app: a}},
-		{name: "build", short: "trigger a parameterized build", data: &buildCmd{app: a}},
+		{name: "build", short: "trigger a parameterized build",
+			long: "Pass parameters as dynamic --param-<name>=<value> flags (one per parameter), " +
+				"e.g. jcli build my-job --param-branch=main --param-env=uat. These are not listed " +
+				"above because they are job-specific: run 'jcli get <job>' to see a job's parameter " +
+				"names, types, and defaults. Values are validated against those definitions " +
+				"(unknown names and out-of-range Choice values are rejected).",
+			data: &buildCmd{app: a}},
 		{name: "status", short: "show running jobs or a build's stage status", data: &statusCmd{app: a}},
 		{name: "logs", short: "print a build's console output", data: &logsCmd{app: a}},
 		{name: "dump", short: "emit the full cached job map as JSON", data: &dumpCmd{app: a}},
@@ -108,9 +114,10 @@ func (c *buildCmd) Execute(args []string) error {
 // a build number it shows that build's stage status. --wait follows a running/target build to
 // terminal state.
 type statusCmd struct {
-	app  *app
-	Wait bool `long:"wait" description:"follow the target build's stage status to completion"`
-	Logs bool `long:"logs" description:"show the build's console output instead of stages (requires a job and build number)"`
+	app    *app
+	Wait   bool `long:"wait" description:"follow the target build's stage status to completion"`
+	Logs   bool `long:"logs" description:"show the build's console output instead of stages (requires a job and build number)"`
+	Params bool `long:"params" description:"show the parameters a specific build ran with (requires a job and build number)"`
 }
 
 // Execute implements flags.Commander. Positionals are [job [number]]; none means "running now".

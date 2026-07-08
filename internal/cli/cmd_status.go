@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"sort"
 	"strconv"
 	"strings"
@@ -26,9 +27,18 @@ func (c *statusCmd) runStatus(args []string) error {
 	if c.Wait && len(args) == 0 {
 		return errors.New("status: --wait requires a job (optionally a build number)")
 	}
+	// --params and --logs are two different single-build views; reject the combination before any
+	// arity check so it reports the exclusion rather than a confusing arity error.
+	if c.Params && c.Logs {
+		return errors.New("status: --params and --logs are mutually exclusive")
+	}
 	// --logs shows a single build's console, so it only makes sense at the build-id level.
 	if c.Logs && len(args) != 2 {
 		return errors.New("status: --logs requires a job and build number (use 'logs <job>' for the latest build)")
+	}
+	// --params reports a specific build's parameter values, so it too needs a job and build number.
+	if c.Params && len(args) != 2 {
+		return errors.New("status: --params requires a job and build number")
 	}
 
 	switch len(args) {
@@ -40,6 +50,9 @@ func (c *statusCmd) runStatus(args []string) error {
 		number, err := strconv.Atoi(args[1])
 		if err != nil || number <= 0 {
 			return fmt.Errorf("status: invalid build number %q", args[1])
+		}
+		if c.Params {
+			return c.buildParams(args[0], number)
 		}
 		if c.Logs {
 			return c.buildLogs(args[0], number)
@@ -153,6 +166,36 @@ func (c *statusCmd) buildByNumber(name string, number int) error {
 	return c.showBuild(client, name, b)
 }
 
+// buildParams resolves the numbered build and reports the parameter values it actually ran with:
+// it reads the build status (for the header line) plus the build's parameters, then renders them.
+// --wait has no effect (parameters are fixed at trigger time), so it renders once. A missing build
+// surfaces as ErrNotFound (exit 3).
+func (c *statusCmd) buildParams(name string, number int) error {
+	prof, client, err := c.app.clientFor()
+	if err != nil {
+		return err
+	}
+	m, err := cache.Load(prof.Name)
+	if err != nil {
+		return fmt.Errorf("load cache: %w", err)
+	}
+	job, err := c.app.resolveJob(client, m, prof, name)
+	if err != nil {
+		return err
+	}
+
+	buildURL := buildURLFor(prof, job, number)
+	b, err := client.BuildStatus(context.Background(), buildURL)
+	if err != nil {
+		return fmt.Errorf("build #%d of %q: %w", number, name, err)
+	}
+	params, err := client.BuildParams(context.Background(), buildURL)
+	if err != nil {
+		return fmt.Errorf("params for build #%d of %q: %w", number, name, err)
+	}
+	return c.renderBuildParams(name, b, params)
+}
+
 // showBuild follows a building target to terminal state under --wait, otherwise renders the
 // current stage snapshot once. An already-terminal target under --wait renders once (not an error).
 func (c *statusCmd) showBuild(client jenkinsClient, name string, b jenkins.Build) error {
@@ -220,6 +263,16 @@ func (c *statusCmd) stagesFor(ctx context.Context, client jenkinsClient, buildUR
 	return stages
 }
 
+// writeBuildHeader writes a build's one-line header: a running build carries its elapsed time, a
+// finished one its terminal result. Shared by renderBuild and renderBuildParams so both agree.
+func (c *statusCmd) writeBuildHeader(w io.Writer, name string, b jenkins.Build) {
+	if b.Building {
+		fmt.Fprintf(w, "%s #%d  RUNNING  (elapsed %s)\n", name, b.Number, c.elapsedOf(b.Timestamp))
+	} else {
+		fmt.Fprintf(w, "%s #%d  %s\n", name, b.Number, buildResult(b))
+	}
+}
+
 // renderBuild writes the build's overall state line plus a per-stage snapshot (--json emits the
 // structured document instead). A running build's line carries its elapsed time; a finished one
 // carries its terminal result.
@@ -228,11 +281,7 @@ func (c *statusCmd) renderBuild(name string, b jenkins.Build, stages []jenkins.S
 		return c.printBuildJSON(name, b, stages)
 	}
 	w := c.app.stdout
-	if b.Building {
-		fmt.Fprintf(w, "%s #%d  RUNNING  (elapsed %s)\n", name, b.Number, c.elapsedOf(b.Timestamp))
-	} else {
-		fmt.Fprintf(w, "%s #%d  %s\n", name, b.Number, buildResult(b))
-	}
+	c.writeBuildHeader(w, name, b)
 	for _, st := range stages {
 		glyph, ok := stageGlyphs[st.Status]
 		if !ok {
@@ -244,6 +293,32 @@ func (c *statusCmd) renderBuild(name string, b jenkins.Build, stages []jenkins.S
 			continue
 		}
 		fmt.Fprintf(w, "  %s %s (%s)\n", glyph, st.Name, humanizeDuration(st.DurationMillis))
+	}
+	return nil
+}
+
+// renderBuildParams writes the build's header line (mirroring renderBuild) followed by the aligned
+// parameter block the build ran with, or "params:    (none)" when it had none. --json emits the
+// structured buildParamsJSON document instead.
+func (c *statusCmd) renderBuildParams(name string, b jenkins.Build, params []jenkins.BuildParam) error {
+	if c.app.global.JSON {
+		return c.printBuildParamsJSON(name, b, params)
+	}
+	w := c.app.stdout
+	c.writeBuildHeader(w, name, b)
+	if len(params) == 0 {
+		fmt.Fprintln(w, "params:    (none)")
+		return nil
+	}
+	width := 0
+	for _, p := range params {
+		if len(p.Name) > width {
+			width = len(p.Name)
+		}
+	}
+	fmt.Fprintln(w, "params:")
+	for _, p := range params {
+		fmt.Fprintf(w, "  %-*s = %s\n", width, p.Name, p.Value)
 	}
 	return nil
 }
@@ -307,6 +382,18 @@ type buildJSON struct {
 	Timestamp int64  `json:"timestamp"`
 }
 
+// newBuildJSON maps a jenkins.Build to its --json shape. Callers that must distinguish a zero build
+// (never built) from a real one guard the call themselves; this only does the field mapping.
+func newBuildJSON(b jenkins.Build) *buildJSON {
+	return &buildJSON{
+		Number:    b.Number,
+		URL:       b.URL,
+		Building:  b.Building,
+		Result:    b.Result,
+		Timestamp: b.Timestamp,
+	}
+}
+
 // stageJSON is the --json shape for one pipeline stage.
 type stageJSON struct {
 	Name           string `json:"name"`
@@ -320,6 +407,15 @@ type statusJSON struct {
 	Running bool        `json:"running"`
 	Build   *buildJSON  `json:"build"`
 	Stages  []stageJSON `json:"stages,omitempty"`
+}
+
+// buildParamsJSON is the --json document for a build's parameter values. params is a name→value map
+// (encoding/json emits its keys alphabetically), so it loses Jenkins' insertion order that the
+// human output preserves.
+type buildParamsJSON struct {
+	Job    string            `json:"job"`
+	Build  *buildJSON        `json:"build"`
+	Params map[string]string `json:"params"`
 }
 
 // printRunningJSON emits the running-list JSON array.
@@ -336,16 +432,23 @@ func (c *statusCmd) printRunningJSON(builds []jenkins.RunningBuild) error {
 func (c *statusCmd) printBuildJSON(name string, b jenkins.Build, stages []jenkins.Stage) error {
 	doc := statusJSON{Job: name, Running: b.Building}
 	if b.URL != "" || b.Number != 0 {
-		doc.Build = &buildJSON{
-			Number:    b.Number,
-			URL:       b.URL,
-			Building:  b.Building,
-			Result:    b.Result,
-			Timestamp: b.Timestamp,
-		}
+		doc.Build = newBuildJSON(b)
 	}
 	for _, st := range stages {
 		doc.Stages = append(doc.Stages, stageJSON{Name: st.Name, Status: st.Status, DurationMillis: st.DurationMillis})
+	}
+	return c.encodeJSON(doc)
+}
+
+// printBuildParamsJSON emits the {job, build, params} JSON document for a build's parameter values.
+func (c *statusCmd) printBuildParamsJSON(name string, b jenkins.Build, params []jenkins.BuildParam) error {
+	doc := buildParamsJSON{
+		Job:    name,
+		Build:  newBuildJSON(b),
+		Params: make(map[string]string, len(params)),
+	}
+	for _, p := range params {
+		doc.Params[p.Name] = p.Value
 	}
 	return c.encodeJSON(doc)
 }

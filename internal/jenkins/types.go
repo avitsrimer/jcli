@@ -72,6 +72,29 @@ type defaultValue struct {
 	Value any `json:"value"`
 }
 
+// BuildParam is a single parameter value a specific build actually ran with, flattened from
+// the build's ParametersAction. Value is the stringified form of the raw JSON value.
+type BuildParam struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+// buildParamsResponse is the shape of GET <buildURL>/api/json?tree=actions[parameters[name,value]]:
+// an actions array where only the ParametersAction entry carries parameters; the rest decode to
+// an empty slice and are skipped.
+type buildParamsResponse struct {
+	Actions []struct {
+		Parameters []rawBuildParam `json:"parameters"`
+	} `json:"actions"`
+}
+
+// rawBuildParam is one raw parameter value in a build's ParametersAction; Value is decoded as a
+// generic so a Boolean (true) or String ("master") value both survive before stringification.
+type rawBuildParam struct {
+	Name  string `json:"name"`
+	Value any    `json:"value"`
+}
+
 // QueueItem is the subset of a Jenkins queue item jcli needs to resolve a triggered build:
 // while the item is pending Executable is nil; once Jenkins starts the build, Executable
 // carries the assigned build number and URL.

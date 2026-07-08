@@ -395,6 +395,191 @@ func TestStatus_Wait(t *testing.T) {
 	})
 }
 
+func TestStatus_Params(t *testing.T) {
+	t.Run("human output renders header and aligned name = value block", func(t *testing.T) {
+		jc := &jenkinsClientMock{
+			BuildStatusFunc: func(_ context.Context, buildURL string) (jenkins.Build, error) {
+				assert.Equal(t, "https://jenkins.example.com/job/deploy-app/42/", buildURL)
+				return jenkins.Build{Number: 42, URL: buildURL, Building: false, Result: "SUCCESS", Timestamp: 5}, nil
+			},
+			BuildParamsFunc: func(_ context.Context, buildURL string) ([]jenkins.BuildParam, error) {
+				assert.Equal(t, "https://jenkins.example.com/job/deploy-app/42/", buildURL)
+				return []jenkins.BuildParam{
+					{Name: "raven_branch", Value: "master"},
+					{Name: "where_to_deploy", Value: "uat-2"},
+				}, nil
+			},
+		}
+		a, out, _ := readTestApp(t, jc)
+		warmStatusCache(t)
+
+		code := a.run([]string{"status", "deploy-app", "42", "--params"})
+		require.Equal(t, exitOK, code)
+		s := out.String()
+		assert.Contains(t, s, "deploy-app #42  SUCCESS")
+		assert.Contains(t, s, "params:")
+		// the shorter name is padded to the width of the longest so the '=' columns align.
+		assert.Contains(t, s, "  raven_branch    = master")
+		assert.Contains(t, s, "  where_to_deploy = uat-2")
+	})
+
+	t.Run("json emits the {job, build, params} document", func(t *testing.T) {
+		jc := &jenkinsClientMock{
+			BuildStatusFunc: func(_ context.Context, buildURL string) (jenkins.Build, error) {
+				return jenkins.Build{Number: 42, URL: buildURL, Building: false, Result: "SUCCESS", Timestamp: 5}, nil
+			},
+			BuildParamsFunc: func(context.Context, string) ([]jenkins.BuildParam, error) {
+				return []jenkins.BuildParam{
+					{Name: "raven_branch", Value: "master"},
+					{Name: "where_to_deploy", Value: "uat-2"},
+				}, nil
+			},
+		}
+		a, out, _ := readTestApp(t, jc)
+		a.global.JSON = true
+		warmStatusCache(t)
+
+		code := a.run([]string{"status", "deploy-app", "42", "--params"})
+		require.Equal(t, exitOK, code)
+
+		var got buildParamsJSON
+		require.NoError(t, json.Unmarshal(out.Bytes(), &got))
+		assert.Equal(t, "deploy-app", got.Job)
+		require.NotNil(t, got.Build)
+		assert.Equal(t, 42, got.Build.Number)
+		assert.False(t, got.Build.Building)
+		assert.Equal(t, "SUCCESS", got.Build.Result)
+		assert.Equal(t, "https://jenkins.example.com/job/deploy-app/42/", got.Build.URL)
+		assert.Equal(t, int64(5), got.Build.Timestamp)
+		assert.Equal(t, map[string]string{"raven_branch": "master", "where_to_deploy": "uat-2"}, got.Params)
+	})
+
+	t.Run("param-less build renders (none)", func(t *testing.T) {
+		jc := &jenkinsClientMock{
+			BuildStatusFunc: func(_ context.Context, buildURL string) (jenkins.Build, error) {
+				return jenkins.Build{Number: 3, URL: buildURL, Building: false, Result: "SUCCESS"}, nil
+			},
+			BuildParamsFunc: func(context.Context, string) ([]jenkins.BuildParam, error) { return nil, nil },
+		}
+		a, out, _ := readTestApp(t, jc)
+		warmStatusCache(t)
+
+		code := a.run([]string{"status", "deploy-app", "3", "--params"})
+		require.Equal(t, exitOK, code)
+		s := out.String()
+		assert.Contains(t, s, "deploy-app #3  SUCCESS")
+		assert.Contains(t, s, "params:    (none)")
+	})
+
+	t.Run("--wait is ignored: same single-shot output", func(t *testing.T) {
+		var buildStatusCalls atomic.Int32
+		jc := &jenkinsClientMock{
+			BuildStatusFunc: func(_ context.Context, buildURL string) (jenkins.Build, error) {
+				buildStatusCalls.Add(1)
+				return jenkins.Build{Number: 42, URL: buildURL, Building: false, Result: "SUCCESS", Timestamp: 5}, nil
+			},
+			BuildParamsFunc: func(context.Context, string) ([]jenkins.BuildParam, error) {
+				return []jenkins.BuildParam{{Name: "raven_branch", Value: "master"}}, nil
+			},
+		}
+		a, out, _ := readTestApp(t, jc)
+		a.pollInterval = time.Millisecond
+		warmStatusCache(t)
+
+		code := a.run([]string{"status", "deploy-app", "42", "--params", "--wait"})
+		require.Equal(t, exitOK, code)
+		s := out.String()
+		assert.Contains(t, s, "deploy-app #42  SUCCESS")
+		assert.Contains(t, s, "  raven_branch = master")
+		// rendered once: BuildStatus fetched a single time, no polling loop.
+		assert.Equal(t, int32(1), buildStatusCalls.Load())
+	})
+
+	t.Run("--params with job only is a usage error", func(t *testing.T) {
+		a, _, errBuf := readTestApp(t, &jenkinsClientMock{})
+		warmStatusCache(t)
+		code := a.run([]string{"status", "deploy-app", "--params"})
+		assert.Equal(t, exitUsage, code)
+		assert.Contains(t, errBuf.String(), "--params requires a job and build number")
+	})
+
+	t.Run("--params combined with --logs is a usage error", func(t *testing.T) {
+		a, _, errBuf := readTestApp(t, &jenkinsClientMock{})
+		warmStatusCache(t)
+		code := a.run([]string{"status", "deploy-app", "42", "--params", "--logs"})
+		assert.Equal(t, exitUsage, code)
+		assert.Contains(t, errBuf.String(), "--params and --logs are mutually exclusive")
+	})
+
+	t.Run("exclusion is checked before arity: job-only --params --logs still reports exclusion", func(t *testing.T) {
+		// job-only (len==1) would pass the arity guard for either flag; the exclusion error proves
+		// the mutual-exclusion guard runs first, not the arity guard.
+		a, _, errBuf := readTestApp(t, &jenkinsClientMock{})
+		warmStatusCache(t)
+		code := a.run([]string{"status", "deploy-app", "--params", "--logs"})
+		assert.Equal(t, exitUsage, code)
+		assert.Contains(t, errBuf.String(), "--params and --logs are mutually exclusive")
+		assert.NotContains(t, errBuf.String(), "requires a job and build number")
+	})
+
+	t.Run("running build renders a RUNNING header alongside params", func(t *testing.T) {
+		now := time.UnixMilli(10_000_000)
+		jc := &jenkinsClientMock{
+			BuildStatusFunc: func(_ context.Context, buildURL string) (jenkins.Build, error) {
+				return jenkins.Build{Number: 42, URL: buildURL, Building: true, Timestamp: now.Add(-2 * time.Minute).UnixMilli()}, nil
+			},
+			BuildParamsFunc: func(context.Context, string) ([]jenkins.BuildParam, error) {
+				return []jenkins.BuildParam{{Name: "raven_branch", Value: "master"}}, nil
+			},
+		}
+		a, out, _ := readTestApp(t, jc)
+		a.now = fixedClock(now)
+		warmStatusCache(t)
+
+		code := a.run([]string{"status", "deploy-app", "42", "--params"})
+		require.Equal(t, exitOK, code)
+		s := out.String()
+		assert.Contains(t, s, "deploy-app #42  RUNNING  (elapsed 2m0s)")
+		assert.Contains(t, s, "  raven_branch = master")
+	})
+
+	t.Run("json for a param-less build emits a non-nil empty params map", func(t *testing.T) {
+		jc := &jenkinsClientMock{
+			BuildStatusFunc: func(_ context.Context, buildURL string) (jenkins.Build, error) {
+				return jenkins.Build{Number: 3, URL: buildURL, Building: false, Result: "SUCCESS"}, nil
+			},
+			BuildParamsFunc: func(context.Context, string) ([]jenkins.BuildParam, error) { return nil, nil },
+		}
+		a, out, _ := readTestApp(t, jc)
+		a.global.JSON = true
+		warmStatusCache(t)
+
+		code := a.run([]string{"status", "deploy-app", "3", "--params"})
+		require.Equal(t, exitOK, code)
+		// the JSON must carry "params": {} (empty object), never null, so consumers can index it.
+		assert.Contains(t, out.String(), `"params": {}`)
+
+		var got buildParamsJSON
+		require.NoError(t, json.Unmarshal(out.Bytes(), &got))
+		assert.NotNil(t, got.Params)
+		assert.Empty(t, got.Params)
+	})
+
+	t.Run("missing build is not-found (exit 3)", func(t *testing.T) {
+		jc := &jenkinsClientMock{
+			BuildStatusFunc: func(context.Context, string) (jenkins.Build, error) {
+				return jenkins.Build{}, jenkins.ErrNotFound
+			},
+		}
+		a, _, errBuf := readTestApp(t, jc)
+		warmStatusCache(t)
+
+		code := a.run([]string{"status", "deploy-app", "999", "--params"})
+		assert.Equal(t, exitNotFound, code)
+		assert.Contains(t, errBuf.String(), "not found")
+	})
+}
+
 // indexOf is a tiny helper for ordering assertions in rendered output.
 func indexOf(s, sub string) int {
 	for i := 0; i+len(sub) <= len(s); i++ {
