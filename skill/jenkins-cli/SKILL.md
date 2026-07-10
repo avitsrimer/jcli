@@ -15,6 +15,7 @@ Drive Jenkins from the terminal with `jcli`. Requires `jcli` installed (`make in
 - `jcli build <job> --param-<name>=val [--wait]` — trigger a parameterized build; `--wait` polls to completion.
 - `jcli status [job [number]] [--wait]` — no args: list builds running right now; `<job>`: is it running (and its running build's stages); `<job> <number>`: that build's stage status; `--wait` follows a running build. `--logs` (job+number only) shows the console instead of stages; `--params` (job+number only, not with `--logs`) shows the parameter values that build ran with.
 - `jcli logs <job> [number] [--wait]` — print a build's console output; `<job>` uses the latest build, `<job> <number>` a specific one; `--wait` follows live. `build --logs` streams the console straight from a trigger (implies `--wait`).
+- `jcli cancel <job> <number> --yes` — stop/cancel/abort a running build. Both the job name and build number are required. Always pass `--yes` from the skill: without it the command asks an interactive `[y/N]` confirmation the skill cannot answer. If the build is already finished it prints "not running" and exits `0` without stopping anything; on success it prints `canceled build #<n> of <job>`.
 - `jcli profile` — list / use / rm profiles.
 
 ## Exit codes

@@ -116,6 +116,32 @@ func (c *Client) Build(ctx context.Context, jobPath string, params map[string]st
 	return resp.Header.Get("Location"), nil
 }
 
+// Stop aborts a running build by POSTing to <buildURL>/stop with basic auth. In production the
+// default http.Client follows Jenkins' 302 redirect back to the build page, so Stop observes a
+// final 200; the raw 302 is only seen when a non-following client is injected. Both 200 and 302
+// count as success (matching the exact-status style of Build); every other status routes through
+// statusError, so 401→ErrAuth, 403→ErrPermission (a Job/Cancel-permission denial), 404→ErrNotFound,
+// and anything else wraps a bounded body snippet.
+func (c *Client) Stop(ctx context.Context, buildURL string) error {
+	endpoint := strings.TrimRight(buildURL, "/") + "/stop"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, http.NoBody)
+	if err != nil {
+		return fmt.Errorf("stop %s: new request: %w", buildURL, err)
+	}
+	req.SetBasicAuth(c.username, c.token)
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("stop %s: %w", buildURL, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusFound {
+		return fmt.Errorf("stop %s: %w", buildURL, statusError(resp))
+	}
+	return nil
+}
+
 // QueueItem reads a Jenkins queue item by its absolute URL (the Location header returned by
 // Build) and reports its current state. While the build is still queued Executable is nil;
 // once Jenkins starts the run Executable carries the assigned build number and URL. Callers

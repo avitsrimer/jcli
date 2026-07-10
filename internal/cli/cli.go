@@ -46,6 +46,7 @@ type jenkinsClient interface {
 	Jobs(ctx context.Context) ([]jenkins.Job, error)
 	JobParams(ctx context.Context, jobPath string) ([]jenkins.Param, error)
 	Build(ctx context.Context, jobPath string, params map[string]string) (string, error)
+	Stop(ctx context.Context, buildURL string) error
 	QueueItem(ctx context.Context, queueURL string) (jenkins.QueueItem, error)
 	BuildResult(ctx context.Context, buildURL string) (jenkins.BuildResult, error)
 	StageView(ctx context.Context, buildURL string) ([]jenkins.Stage, error)
