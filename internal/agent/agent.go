@@ -154,9 +154,9 @@ func newServer(store keychainStore, sockPath string) (*Server, error) {
 	}
 
 	srv := &Server{
-		store:          store,
-		ln:             ln,
-		lock:           lock,
+		store:              store,
+		ln:                 ln,
+		lock:               lock,
 		ttl:                defaultTTL,
 		idle:               defaultIdle,
 		requestReadTimeout: requestReadTimeout,
