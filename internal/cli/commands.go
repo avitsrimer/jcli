@@ -25,6 +25,12 @@ func (a *app) commands() []command {
 				"(unknown names and out-of-range Choice values are rejected).",
 			data: &buildCmd{app: a}},
 		{name: "status", short: "show running jobs or a build's stage status", data: &statusCmd{app: a}},
+		{name: "cancel", short: "stop a running build",
+			long: "Takes a job name and build number, e.g. jcli cancel my-job 42. Prompts for " +
+				"confirmation ([y/N]) before stopping the build unless --yes is given (for scripted " +
+				"or skill use). Only a currently-running build is stopped: an already-finished build " +
+				"reports 'not running' and exits 0 without prompting.",
+			data: &cancelCmd{app: a}},
 		{name: "logs", short: "print a build's console output", data: &logsCmd{app: a}},
 		{name: "dump", short: "emit the full cached job map as JSON", data: &dumpCmd{app: a}},
 		{name: "install-skill", short: "install the jcli Claude skill", data: &installSkillCmd{app: a}},

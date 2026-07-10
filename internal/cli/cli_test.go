@@ -149,6 +149,22 @@ func TestRunDispatch(t *testing.T) {
 		assert.NotEmpty(t, out.String())
 	})
 
+	t.Run("cancel is registered and lists in top-level help", func(t *testing.T) {
+		a, out, _ := newTestApp(&config.Config{})
+		code := a.run([]string{"--help"})
+		assert.Equal(t, exitOK, code)
+		assert.Contains(t, out.String(), "cancel")
+		assert.Contains(t, out.String(), "stop a running build")
+	})
+
+	t.Run("cancel --help renders its extended help", func(t *testing.T) {
+		a, out, _ := newTestApp(&config.Config{})
+		code := a.run([]string{"cancel", "--help"})
+		assert.Equal(t, exitOK, code)
+		assert.Contains(t, out.String(), "jcli cancel my-job 42")
+		assert.Contains(t, out.String(), "--yes")
+	})
+
 	t.Run("version prints the version and exits ok with no subcommand", func(t *testing.T) {
 		a, out, errBuf := newTestApp(&config.Config{})
 		code := a.run([]string{"--version"})
