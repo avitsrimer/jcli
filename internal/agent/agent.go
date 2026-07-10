@@ -19,14 +19,14 @@ const (
 	defaultIdle = 15 * time.Minute
 )
 
-// requestReadTimeout bounds only the decode of the inbound request. keychainOpTimeout is armed as a
+// requestReadTimeout bounds only the decode of the inbound request. responseWriteTimeout is armed as a
 // write-only deadline after dispatch returns, so it bounds only the response write — it does NOT
 // preempt the blocking cgo keychain read (a net.Conn deadline cannot interrupt SecItemCopyMatching),
 // so a genuinely hung read leaves the per-connection goroutine blocked in cgo; the client-side
 // deadline is the effective bound there.
 const (
-	requestReadTimeout = 5 * time.Second
-	keychainOpTimeout  = 2 * time.Minute
+	requestReadTimeout   = 5 * time.Second
+	responseWriteTimeout = 2 * time.Minute
 )
 
 // request is the JSON wire format the CLI sends over the unix socket. token is only populated
@@ -61,10 +61,10 @@ type Server struct {
 	ln    net.Listener
 	lock  *os.File // held flock guarding single-instance startup
 
-	ttl            time.Duration // refresh-on-use lifetime of a cached token
-	idle           time.Duration // absolute idle window before self-exit
-	reqReadTimeout time.Duration // bounds only the inbound request decode
-	writeTimeout   time.Duration // bounds only the response write (never the keychain read)
+	ttl                time.Duration // refresh-on-use lifetime of a cached token
+	idle               time.Duration // absolute idle window before self-exit
+	requestReadTimeout time.Duration // bounds only the inbound request decode
+	writeTimeout       time.Duration // bounds only the response write (never the keychain read)
 
 	mu      sync.Mutex
 	cache   map[string]*entry
@@ -157,14 +157,14 @@ func newServer(store keychainStore, sockPath string) (*Server, error) {
 		store:          store,
 		ln:             ln,
 		lock:           lock,
-		ttl:            defaultTTL,
-		idle:           defaultIdle,
-		reqReadTimeout: requestReadTimeout,
-		writeTimeout:   keychainOpTimeout,
-		cache:          make(map[string]*entry),
-		lastUse:        time.Now(),
-		peerUID:        peerUID,
-		done:           make(chan struct{}),
+		ttl:                defaultTTL,
+		idle:               defaultIdle,
+		requestReadTimeout: requestReadTimeout,
+		writeTimeout:       responseWriteTimeout,
+		cache:              make(map[string]*entry),
+		lastUse:            time.Now(),
+		peerUID:            peerUID,
+		done:               make(chan struct{}),
 	}
 	return srv, nil
 }
@@ -232,7 +232,7 @@ func (s *Server) handle(conn *net.UnixConn) {
 
 	// bound only the request decode; the blocking keychain read in dispatch must not run under
 	// this short deadline or the socket tears down mid Keychain prompt.
-	_ = conn.SetReadDeadline(time.Now().Add(s.reqReadTimeout))
+	_ = conn.SetReadDeadline(time.Now().Add(s.requestReadTimeout))
 
 	var req request
 	if err := json.NewDecoder(conn).Decode(&req); err != nil {

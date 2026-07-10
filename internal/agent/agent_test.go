@@ -82,7 +82,7 @@ func TestServer_GetToken_SlowKeychainReadNotBoundedByRequestDeadline(t *testing.
 			return "tok-slow", nil
 		},
 	}
-	srv, sock := newTestServer(t, store, func(s *Server) { s.reqReadTimeout = 30 * time.Millisecond })
+	srv, sock := newTestServer(t, store, func(s *Server) { s.requestReadTimeout = 30 * time.Millisecond })
 	defer func() { _ = srv.Close() }()
 
 	got := roundTrip(t, sock, request{Op: "get-token", Profile: "work"})
@@ -122,10 +122,10 @@ func TestServer_ResponseWriteBoundedByWriteTimeout(t *testing.T) {
 
 func TestServer_RequestReadBoundedByReqReadTimeout(t *testing.T) {
 	// a client that connects but never sends a request must not pin the handler forever: the
-	// request-decode read is bounded by reqReadTimeout, after which the handler replies with a
+	// request-decode read is bounded by requestReadTimeout, after which the handler replies with a
 	// decode error and closes. Deleting the SetReadDeadline in handle() makes the decode block until
 	// this client's own safety deadline, failing the elapsed-time assertion.
-	srv, sock := newTestServer(t, &keychainStoreMock{}, func(s *Server) { s.reqReadTimeout = 30 * time.Millisecond })
+	srv, sock := newTestServer(t, &keychainStoreMock{}, func(s *Server) { s.requestReadTimeout = 30 * time.Millisecond })
 	defer func() { _ = srv.Close() }()
 
 	conn, err := net.DialTimeout("unix", sock, time.Second)

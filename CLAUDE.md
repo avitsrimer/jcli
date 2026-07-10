@@ -190,7 +190,7 @@ honor them when touching deps, the cgo files, or the agent tests.
 - **No connection deadline across the blocking keychain read.** A `net.Conn`
   deadline cannot preempt the cgo `SecItemCopyMatching` read, and a short one armed
   before it tears down the socket mid-prompt — surfacing `read response: EOF` at the
-  ACL dialog. The agent bounds only the request decode (`reqReadTimeout`) and the
+  ACL dialog. The agent bounds only the request decode (`requestReadTimeout`) and the
   response write (`writeTimeout`, a write-only deadline armed after dispatch) — never
   the keychain read between them; the client's `requestTimeout` (2 min) is the sole
   bound that fires on a genuinely hung read, and must outlast a person answering the
