@@ -28,8 +28,12 @@ const (
 	spawnPollInterval = 25 * time.Millisecond
 	// dialTimeout bounds a single connection attempt.
 	dialTimeout = time.Second
-	// requestDeadline bounds a single request/response exchange once connected.
-	requestDeadline = 10 * time.Second
+	// requestDeadline bounds a single request/response exchange once connected. It must outlast
+	// an interactive Keychain prompt (the "Allow / Always Allow" dialog, which can also ask for
+	// the login password) that blocks the agent's keychain read, not just a fast silent read.
+	// It is the only bound that actually fires if the keychain read hangs — the agent cannot
+	// preempt its blocking cgo read, so this client-side deadline is the effective protection.
+	requestDeadline = 2 * time.Minute
 )
 
 // request mirrors the agent's wire request exactly. The agent's struct is unexported, so we keep
@@ -50,10 +54,11 @@ type response struct {
 // Client talks to the credential agent over its unix socket. The zero value is not usable;
 // construct it with New.
 type Client struct {
-	sockPath     string
-	self         string // path to this binary, re-exec'd as `<self> __agent` to spawn the agent
-	spawnTimeout time.Duration
-	pollInterval time.Duration
+	sockPath       string
+	self           string // path to this binary, re-exec'd as `<self> __agent` to spawn the agent
+	spawnTimeout   time.Duration
+	pollInterval   time.Duration
+	requestTimeout time.Duration // per-exchange deadline; zero falls back to the requestDeadline constant
 }
 
 // New returns a Client wired to the running binary's agent socket. self defaults to
@@ -109,7 +114,11 @@ func (c *Client) do(req request) (response, error) {
 	}
 	defer func() { _ = conn.Close() }()
 
-	resp, err := exchange(conn, req)
+	timeout := c.requestTimeout
+	if timeout == 0 {
+		timeout = requestDeadline
+	}
+	resp, err := exchange(conn, req, timeout)
 	// best-effort: drop the plaintext token from the request copy now that it has been sent.
 	req.Token = ""
 	if err != nil {
@@ -124,9 +133,9 @@ func (c *Client) do(req request) (response, error) {
 	return resp, nil
 }
 
-// exchange writes req and decodes the single response on conn under a deadline.
-func exchange(conn net.Conn, req request) (response, error) {
-	_ = conn.SetDeadline(time.Now().Add(requestDeadline))
+// exchange writes req and decodes the single response on conn under the given deadline.
+func exchange(conn net.Conn, req request, timeout time.Duration) (response, error) {
+	_ = conn.SetDeadline(time.Now().Add(timeout))
 	if err := json.NewEncoder(conn).Encode(req); err != nil {
 		return response{}, fmt.Errorf("send request: %w", err)
 	}
