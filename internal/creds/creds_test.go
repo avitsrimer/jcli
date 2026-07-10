@@ -145,6 +145,64 @@ func TestClient_Token_NonAuthError(t *testing.T) {
 	assert.Contains(t, err.Error(), "unknown op")
 }
 
+func TestClient_Token_HonorsRequestTimeoutField(t *testing.T) {
+	// a fake agent that reads the request, then delays before replying — modeling the agent
+	// blocking on an interactive keychain prompt. The delay must exceed sub-case (a)'s timeout
+	// yet stay under sub-case (b)'s so the two cases land on opposite sides of the deadline.
+	const responseDelay = 200 * time.Millisecond
+	slowAgent := func(t *testing.T, sock string) (stop func()) {
+		t.Helper()
+		ln, err := net.Listen("unix", sock)
+		require.NoError(t, err)
+		var wg sync.WaitGroup
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				conn, aerr := ln.Accept()
+				if aerr != nil {
+					return
+				}
+				go func() {
+					defer func() { _ = conn.Close() }()
+					var req request
+					if derr := json.NewDecoder(conn).Decode(&req); derr != nil {
+						return
+					}
+					time.Sleep(responseDelay)
+					_ = json.NewEncoder(conn).Encode(response{Token: "tok-slow"})
+				}()
+			}
+		}()
+		var once sync.Once
+		return func() { once.Do(func() { _ = ln.Close(); wg.Wait() }) }
+	}
+
+	t.Run("tight timeout fires before slow response", func(t *testing.T) {
+		sock := shortSock(t)
+		stop := slowAgent(t, sock)
+		defer stop()
+
+		c := newClient(sock, "/nonexistent")
+		c.requestTimeout = 30 * time.Millisecond
+		_, err := c.Token("work")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "read response")
+	})
+
+	t.Run("generous timeout reads the delayed token", func(t *testing.T) {
+		sock := shortSock(t)
+		stop := slowAgent(t, sock)
+		defer stop()
+
+		c := newClient(sock, "/nonexistent")
+		c.requestTimeout = time.Second
+		tok, err := c.Token("work")
+		require.NoError(t, err)
+		assert.Equal(t, "tok-slow", tok)
+	})
+}
+
 func TestClient_SpawnWhenAbsent(t *testing.T) {
 	sock := shortSock(t)
 	bin := buildStubAgentBin(t, sock)
