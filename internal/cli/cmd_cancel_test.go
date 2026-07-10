@@ -29,8 +29,8 @@ func (p failPrompter) promptSecret(string) (string, error) {
 }
 
 // cancelApp builds a read test app (temp cache dir, "work" profile) wired to the given mock, with
-// the prompter injected when non-nil. It executes the cancel command directly (the command is not
-// yet registered with the parser) so the tests drive Execute and inspect the recorded exit code.
+// the prompter injected when non-nil. runCancelCmd drives cancelCmd.Execute directly for focused
+// unit coverage; TestCancel_EndToEnd exercises the full a.run parser path (flag tags + positionals).
 func cancelApp(t *testing.T, jc *jenkinsClientMock, pr prompter) (*app, *bytes.Buffer, *bytes.Buffer) {
 	t.Helper()
 	a, out, errBuf := readTestApp(t, jc)
@@ -74,35 +74,68 @@ func TestCancel_Success(t *testing.T) {
 		assert.Contains(t, out.String(), "canceled build #42 of deploy-app")
 		assert.Len(t, jc.StopCalls(), 1)
 	})
-
-	t.Run("y at the prompt stops the build", func(t *testing.T) {
-		jc := runningBuild(t)
-		pr := &scriptedPrompter{lines: []string{"y"}}
-		a, out, _ := cancelApp(t, jc, pr)
-		warmStatusCache(t)
-
-		code := runCancelCmd(t, a, false, "deploy-app", "42")
-		require.Equal(t, exitOK, code)
-		assert.Contains(t, out.String(), "canceled build #42 of deploy-app")
-		assert.Len(t, jc.StopCalls(), 1)
-		assert.Equal(t, 1, pr.line, "the confirmation prompt was read")
-	})
 }
 
-func TestCancel_Decline(t *testing.T) {
-	jc := &jenkinsClientMock{
-		BuildStatusFunc: func(_ context.Context, buildURL string) (jenkins.Build, error) {
-			return jenkins.Build{Number: 42, URL: buildURL, Building: true, Timestamp: 5}, nil
-		},
+// TestCancel_EndToEnd drives the full parser path via a.run so the -y/--yes flag tag and positional
+// forwarding are exercised, not just Execute in isolation.
+func TestCancel_EndToEnd(t *testing.T) {
+	jc := runningBuild(t)
+	a, out, _ := cancelApp(t, jc, failPrompter{t})
+	warmStatusCache(t)
+
+	code := a.run([]string{"cancel", "deploy-app", "42", "--yes"})
+	require.Equal(t, exitOK, code)
+	assert.Contains(t, out.String(), "canceled build #42 of deploy-app")
+	assert.Len(t, jc.StopCalls(), 1)
+}
+
+func TestCancel_Confirmation(t *testing.T) {
+	tests := []struct {
+		name   string
+		answer string
+		accept bool
+	}{
+		{"y accepts", "y", true},
+		{"yes accepts", "yes", true},
+		{"uppercase Y accepts", "Y", true},
+		{"uppercase YES accepts", "YES", true},
+		{"n declines", "n", false},
+		{"empty input declines (default N)", "", false},
+		{"other input declines", "maybe", false},
 	}
-	pr := &scriptedPrompter{lines: []string{"n"}}
-	a, out, _ := cancelApp(t, jc, pr)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			jc := runningBuild(t)
+			pr := &scriptedPrompter{lines: []string{tc.answer}}
+			a, out, _ := cancelApp(t, jc, pr)
+			warmStatusCache(t)
+
+			code := runCancelCmd(t, a, false, "deploy-app", "42")
+			require.Equal(t, exitOK, code)
+			assert.Equal(t, 1, pr.line, "the confirmation prompt was read")
+			if tc.accept {
+				assert.Contains(t, out.String(), "canceled build #42 of deploy-app")
+				assert.Len(t, jc.StopCalls(), 1)
+				return
+			}
+			assert.Contains(t, out.String(), "aborted")
+			assert.Empty(t, jc.StopCalls(), "decline must not POST /stop")
+		})
+	}
+}
+
+// TestCancel_PromptError covers the confirmation read failing: nothing is stopped and the error
+// surfaces (exit 1 by contract).
+func TestCancel_PromptError(t *testing.T) {
+	jc := runningBuild(t)
+	pr := &scriptedPrompter{err: errors.New("read fail")}
+	a, _, errBuf := cancelApp(t, jc, pr)
 	warmStatusCache(t)
 
 	code := runCancelCmd(t, a, false, "deploy-app", "42")
-	require.Equal(t, exitOK, code)
-	assert.Contains(t, out.String(), "aborted")
-	assert.Empty(t, jc.StopCalls(), "decline must not POST /stop")
+	assert.Equal(t, exitUsage, code)
+	assert.Contains(t, errBuf.String(), "read confirmation")
+	assert.Empty(t, jc.StopCalls(), "a failed confirmation read must not stop the build")
 }
 
 func TestCancel_AlreadyFinished(t *testing.T) {
