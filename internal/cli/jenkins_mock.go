@@ -55,6 +55,9 @@ var _ jenkinsClient = &jenkinsClientMock{}
 //			StageViewFunc: func(ctx context.Context, buildURL string) ([]jenkins.Stage, error) {
 //				panic("mock out the StageView method")
 //			},
+//			StopFunc: func(ctx context.Context, buildURL string) error {
+//				panic("mock out the Stop method")
+//			},
 //			WhoAmIFunc: func(ctx context.Context) (jenkins.Identity, error) {
 //				panic("mock out the WhoAmI method")
 //			},
@@ -100,6 +103,9 @@ type jenkinsClientMock struct {
 
 	// StageViewFunc mocks the StageView method.
 	StageViewFunc func(ctx context.Context, buildURL string) ([]jenkins.Stage, error)
+
+	// StopFunc mocks the Stop method.
+	StopFunc func(ctx context.Context, buildURL string) error
 
 	// WhoAmIFunc mocks the WhoAmI method.
 	WhoAmIFunc func(ctx context.Context) (jenkins.Identity, error)
@@ -190,6 +196,13 @@ type jenkinsClientMock struct {
 			// BuildURL is the buildURL argument value.
 			BuildURL string
 		}
+		// Stop holds details about calls to the Stop method.
+		Stop []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// BuildURL is the buildURL argument value.
+			BuildURL string
+		}
 		// WhoAmI holds details about calls to the WhoAmI method.
 		WhoAmI []struct {
 			// Ctx is the ctx argument value.
@@ -208,6 +221,7 @@ type jenkinsClientMock struct {
 	lockQueueItem          sync.RWMutex
 	lockRunningBuilds      sync.RWMutex
 	lockStageView          sync.RWMutex
+	lockStop               sync.RWMutex
 	lockWhoAmI             sync.RWMutex
 }
 
@@ -640,6 +654,42 @@ func (mock *jenkinsClientMock) StageViewCalls() []struct {
 	mock.lockStageView.RLock()
 	calls = mock.calls.StageView
 	mock.lockStageView.RUnlock()
+	return calls
+}
+
+// Stop calls StopFunc.
+func (mock *jenkinsClientMock) Stop(ctx context.Context, buildURL string) error {
+	if mock.StopFunc == nil {
+		panic("jenkinsClientMock.StopFunc: method is nil but jenkinsClient.Stop was just called")
+	}
+	callInfo := struct {
+		Ctx      context.Context
+		BuildURL string
+	}{
+		Ctx:      ctx,
+		BuildURL: buildURL,
+	}
+	mock.lockStop.Lock()
+	mock.calls.Stop = append(mock.calls.Stop, callInfo)
+	mock.lockStop.Unlock()
+	return mock.StopFunc(ctx, buildURL)
+}
+
+// StopCalls gets all the calls that were made to Stop.
+// Check the length with:
+//
+//	len(mockedjenkinsClient.StopCalls())
+func (mock *jenkinsClientMock) StopCalls() []struct {
+	Ctx      context.Context
+	BuildURL string
+} {
+	var calls []struct {
+		Ctx      context.Context
+		BuildURL string
+	}
+	mock.lockStop.RLock()
+	calls = mock.calls.Stop
+	mock.lockStop.RUnlock()
 	return calls
 }
 
