@@ -37,6 +37,11 @@ The `install-skill` command writes the embedded skill (always overwriting) to
 `<claude>/skills/jenkins-cli` (`--to` defaults to `~/.claude`), so the installed
 binary is self-contained and re-installs are idempotent.
 
+Implementation plans live in `docs/plans/`, but `.gitignore` tracks only
+`docs/plans/completed/` — `docs/plans/*` is otherwise ignored. In-progress plans
+are local-only; a plan is committed only once moved into `completed/`. Editing a
+plan's checkboxes mid-work therefore never shows up in `git status`.
+
 ## Build / test / lint
 
 ```bash
@@ -154,6 +159,13 @@ honor them when touching deps, the cgo files, or the agent tests.
   `screenlock_darwin.go`. moq cannot load a package whose cgo preamble is
   Objective-C, so `internal/agent/keychain_mock.go` is hand-written to moq's
   shape (with a regenerate TODO) rather than generated.
+- **Regenerating `internal/cli/jenkins_mock.go` after an interface change.** When
+  you add a method to the `jenkinsClient` interface, `go generate ./internal/cli/...`
+  fails: moq can't load the package because the *stale* mock's
+  `var _ jenkinsClient = &jenkinsClientMock{}` compile-time assertion no longer
+  satisfies the enlarged interface (chicken-and-egg). Delete `jenkins_mock.go`
+  first, then run the moq command — it regenerates fresh with the assertion
+  restored. The file is fully generated; never hand-edit it.
 - **Build-tag split for darwin vs stub.** Each cgo surface has a `_darwin.go`
   implementation plus a `_other.go` (`!darwin`) stub that returns a clear
   "unsupported platform" error / no-op: `keychain`, `peercred`, `screenlock`.
@@ -175,6 +187,12 @@ honor them when touching deps, the cgo files, or the agent tests.
   prompt only appears when the binary's ad-hoc code identity changes (e.g. after a
   rebuild); the binary that created the item reads silently. Unit tests cover only
   the accept/extraction path and the `flush` mechanism the lock callback reuses.
+- **No connection deadline across the blocking keychain read.** A `net.Conn`
+  deadline cannot preempt the cgo `SecItemCopyMatching` read, and a short one armed
+  before it tears down the socket mid-prompt — surfacing `read response: EOF` at the
+  ACL dialog. The agent bounds only the request decode (`reqReadTimeout`); the
+  client's `requestTimeout` (2 min) is the sole bound that fires on a genuinely hung
+  read, and must outlast a person answering the prompt.
 
 ## Exit codes
 
