@@ -19,10 +19,11 @@ const (
 	defaultIdle = 15 * time.Minute
 )
 
-// requestReadTimeout bounds only the decode of the inbound request. keychainOpTimeout bounds only
-// the response write once dispatch returns — it does NOT preempt the blocking cgo keychain read
-// (a net.Conn deadline cannot interrupt SecItemCopyMatching), so a genuinely hung read leaves the
-// per-connection goroutine blocked in cgo; the client-side deadline is the effective bound there.
+// requestReadTimeout bounds only the decode of the inbound request. keychainOpTimeout is armed as a
+// write-only deadline after dispatch returns, so it bounds only the response write — it does NOT
+// preempt the blocking cgo keychain read (a net.Conn deadline cannot interrupt SecItemCopyMatching),
+// so a genuinely hung read leaves the per-connection goroutine blocked in cgo; the client-side
+// deadline is the effective bound there.
 const (
 	requestReadTimeout = 5 * time.Second
 	keychainOpTimeout  = 2 * time.Minute
@@ -63,6 +64,7 @@ type Server struct {
 	ttl            time.Duration // refresh-on-use lifetime of a cached token
 	idle           time.Duration // absolute idle window before self-exit
 	reqReadTimeout time.Duration // bounds only the inbound request decode
+	writeTimeout   time.Duration // bounds only the response write (never the keychain read)
 
 	mu      sync.Mutex
 	cache   map[string]*entry
@@ -158,6 +160,7 @@ func newServer(store keychainStore, sockPath string) (*Server, error) {
 		ttl:            defaultTTL,
 		idle:           defaultIdle,
 		reqReadTimeout: requestReadTimeout,
+		writeTimeout:   keychainOpTimeout,
 		cache:          make(map[string]*entry),
 		lastUse:        time.Now(),
 		peerUID:        peerUID,
@@ -237,12 +240,13 @@ func (s *Server) handle(conn *net.UnixConn) {
 		return
 	}
 
-	// a generous deadline covering dispatch + the response write. it bounds only the write; it
-	// cannot preempt the blocking cgo keychain read (see keychainOpTimeout doc).
-	_ = conn.SetDeadline(time.Now().Add(keychainOpTimeout))
-
 	s.touch()
-	s.writeResponse(conn, s.dispatch(req))
+	resp := s.dispatch(req)
+
+	// arm a write-only deadline for the response send. it bounds only the write; the blocking cgo
+	// keychain read in dispatch has already completed and was never under any deadline.
+	_ = conn.SetWriteDeadline(time.Now().Add(s.writeTimeout))
+	s.writeResponse(conn, resp)
 }
 
 // dispatch routes a request to the matching operation and returns the response to send.

@@ -3,9 +3,11 @@ package agent
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -76,7 +78,7 @@ func TestServer_GetToken_SlowKeychainReadNotBoundedByRequestDeadline(t *testing.
 	// longer runs under the request deadline.
 	store := &keychainStoreMock{
 		GetFunc: func(_ string) (string, error) {
-			time.Sleep(80 * time.Millisecond)
+			time.Sleep(200 * time.Millisecond)
 			return "tok-slow", nil
 		},
 	}
@@ -86,6 +88,60 @@ func TestServer_GetToken_SlowKeychainReadNotBoundedByRequestDeadline(t *testing.
 	got := roundTrip(t, sock, request{Op: "get-token", Profile: "work"})
 	require.Empty(t, got.Error)
 	assert.Equal(t, "tok-slow", got.Token)
+}
+
+func TestServer_ResponseWriteBoundedByWriteTimeout(t *testing.T) {
+	// a token far larger than any socket send buffer forces the response write to block until the
+	// client drains it. With a tiny writeTimeout and a client that stalls before reading, the
+	// server's write must hit its deadline and abandon the response — delivering only a partial
+	// payload — rather than blocking forever. Deleting the SetWriteDeadline in handle() makes the
+	// server hang until this client eventually drains the whole payload, failing the partial
+	// assertion below.
+	const tokenLen = 8 << 20 // 8 MiB, comfortably past any unix-socket buffer
+	big := strings.Repeat("x", tokenLen)
+	store := &keychainStoreMock{
+		GetFunc: func(_ string) (string, error) { return big, nil },
+	}
+	srv, sock := newTestServer(t, store, func(s *Server) { s.writeTimeout = 50 * time.Millisecond })
+	defer func() { _ = srv.Close() }()
+
+	conn, err := net.DialTimeout("unix", sock, time.Second)
+	require.NoError(t, err)
+	defer func() { _ = conn.Close() }()
+	require.NoError(t, json.NewEncoder(conn).Encode(request{Op: "get-token", Profile: "work"}))
+
+	// stall well past the write deadline so the server's blocked write gives up before we drain.
+	time.Sleep(300 * time.Millisecond)
+
+	// safety net: a regression (no write deadline) leaves the server blocked, so bound our own read
+	// so the test fails on the assertion below instead of hanging.
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(3*time.Second)))
+	n, _ := io.Copy(io.Discard, conn)
+	assert.Less(t, int(n), tokenLen, "server must abandon the write at its deadline, not deliver the full payload")
+}
+
+func TestServer_RequestReadBoundedByReqReadTimeout(t *testing.T) {
+	// a client that connects but never sends a request must not pin the handler forever: the
+	// request-decode read is bounded by reqReadTimeout, after which the handler replies with a
+	// decode error and closes. Deleting the SetReadDeadline in handle() makes the decode block until
+	// this client's own safety deadline, failing the elapsed-time assertion.
+	srv, sock := newTestServer(t, &keychainStoreMock{}, func(s *Server) { s.reqReadTimeout = 30 * time.Millisecond })
+	defer func() { _ = srv.Close() }()
+
+	conn, err := net.DialTimeout("unix", sock, time.Second)
+	require.NoError(t, err)
+	defer func() { _ = conn.Close() }()
+
+	// send nothing; hold the connection open and wait for the server to give up on the decode. our
+	// own generous read deadline is only a safety net so a regression fails instead of hanging.
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(3*time.Second)))
+	start := time.Now()
+	var resp response
+	err = json.NewDecoder(conn).Decode(&resp)
+	elapsed := time.Since(start)
+	require.NoError(t, err, "server must reply with a decode-error response, not leave us hanging")
+	assert.Contains(t, resp.Error, "decode request")
+	assert.Less(t, elapsed, 2*time.Second, "the reply must arrive at the server's read deadline, not our safety net")
 }
 
 func TestServer_GetToken_TTLExpiryForcesRefetch(t *testing.T) {

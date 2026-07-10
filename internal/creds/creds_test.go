@@ -149,7 +149,7 @@ func TestClient_Token_HonorsRequestTimeoutField(t *testing.T) {
 	// a fake agent that reads the request, then delays before replying — modeling the agent
 	// blocking on an interactive keychain prompt. The delay must exceed sub-case (a)'s timeout
 	// yet stay under sub-case (b)'s so the two cases land on opposite sides of the deadline.
-	const responseDelay = 80 * time.Millisecond
+	const responseDelay = 200 * time.Millisecond
 	slowAgent := func(t *testing.T, sock string) (stop func()) {
 		t.Helper()
 		ln, err := net.Listen("unix", sock)
