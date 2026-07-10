@@ -70,6 +70,24 @@ func TestServer_GetToken_CacheHitAvoidsSecondKeychainCall(t *testing.T) {
 	assert.Len(t, store.GetCalls(), 1)
 }
 
+func TestServer_GetToken_SlowKeychainReadNotBoundedByRequestDeadline(t *testing.T) {
+	// model the interactive Keychain prompt: the store read blocks longer than the tiny request
+	// read deadline. the client must still read back the token, proving the blocking read no
+	// longer runs under the request deadline.
+	store := &keychainStoreMock{
+		GetFunc: func(_ string) (string, error) {
+			time.Sleep(80 * time.Millisecond)
+			return "tok-slow", nil
+		},
+	}
+	srv, sock := newTestServer(t, store, func(s *Server) { s.reqReadTimeout = 30 * time.Millisecond })
+	defer func() { _ = srv.Close() }()
+
+	got := roundTrip(t, sock, request{Op: "get-token", Profile: "work"})
+	require.Empty(t, got.Error)
+	assert.Equal(t, "tok-slow", got.Token)
+}
+
 func TestServer_GetToken_TTLExpiryForcesRefetch(t *testing.T) {
 	store := &keychainStoreMock{
 		GetFunc: func(_ string) (string, error) { return "tok-fresh", nil },
