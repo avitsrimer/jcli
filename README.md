@@ -262,6 +262,29 @@ emits a `{job, build, params}` document where `params` is a `name → value` obj
 `--wait` has no effect with `--params` (a build's parameters are fixed at trigger
 time), so it renders once.
 
+### `cancel`
+
+`cancel` stops a currently-running build, given a job name and a build number:
+
+```bash
+# stop a running build (prompts [y/N] before stopping)
+jcli cancel my-job 42
+
+# skip the confirmation prompt (for scripts / non-interactive use)
+jcli cancel my-job 42 --yes
+jcli cancel my-job 42 -y
+```
+
+Before stopping, `cancel` checks the build's state: if the target build is not
+running (already finished, or never was), it prints `build #<n> of <job> is not
+running (<result>)` and exits `0` without prompting or stopping anything.
+
+For a running build it asks `cancel build #<n> of <job>? [y/N] ` and only
+proceeds on `y`/`yes` (case-insensitive); anything else prints `aborted` and
+exits `0`. `--yes`/`-y` skips this prompt. On success it prints
+`canceled build #<n> of <job>`. A missing job or build is exit `3`, an auth
+failure exit `2`, and an abort-permission denial exit `1`.
+
 ### `logs` and `--logs`
 
 `logs` prints a build's Jenkins console output:
@@ -297,6 +320,7 @@ a missing build is exit 3 and an auth failure exit 2.
 | `get <job>`      | Show a job's details and parameters (live read).                  |
 | `build <job>`    | Trigger a build (`--param-<name>=val`, `--wait` to poll to completion, `--no-stages` to suppress stage-view lines, `--logs` to stream the console). |
 | `status [job [number]]` | Show running builds (no args), a job's run state, or a build's stage status (`--wait` to follow, `--logs` for the build's console at the job+number level, `--params` for the values a build ran with). |
+| `cancel <job> <number>` | Stop a running build by job name and build number (prompts for confirmation unless `--yes`/`-y`; an already-finished build reports "not running" and exits 0). |
 | `logs <job> [number]` | Print a build's console output — latest build (job only) or a specific number (`--wait` to follow live). |
 | `dump`           | Emit the full cached job map as formatted JSON (`--refresh` to re-crawl). |
 | `install-skill`  | Install the bundled Claude skill to `~/.claude/skills/jenkins-cli` (`--to` to override). |
