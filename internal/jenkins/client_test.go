@@ -194,6 +194,103 @@ func TestClient_Build_Success(t *testing.T) {
 	assert.Equal(t, location, loc)
 }
 
+func TestClient_Stop(t *testing.T) {
+	t.Run("200 is success", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			assert.Equal(t, http.MethodPost, r.Method)
+			assert.Equal(t, "/job/Logistics/42/stop", r.URL.Path)
+			user, pass, ok := r.BasicAuth()
+			assert.True(t, ok)
+			assert.Equal(t, "alice", user)
+			assert.Equal(t, "tok", pass)
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer srv.Close()
+
+		c := New(srv.URL, "alice", "tok", srv.Client())
+		err := c.Stop(context.Background(), srv.URL+"/job/Logistics/42/")
+		require.NoError(t, err)
+	})
+
+	t.Run("302 redirect back to build page is followed to a 200 success", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/job/Logistics/42/stop" {
+				http.Redirect(w, r, "/job/Logistics/42/", http.StatusFound)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer srv.Close()
+
+		c := New(srv.URL, "alice", "tok", srv.Client())
+		err := c.Stop(context.Background(), srv.URL+"/job/Logistics/42/")
+		require.NoError(t, err)
+	})
+
+	t.Run("raw 302 is accepted when the client does not follow redirects", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, "/job/Logistics/42/", http.StatusFound)
+		}))
+		defer srv.Close()
+
+		hc := srv.Client()
+		hc.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+		c := New(srv.URL, "alice", "tok", hc)
+		err := c.Stop(context.Background(), srv.URL+"/job/Logistics/42/")
+		require.NoError(t, err)
+	})
+
+	t.Run("404 surfaces ErrNotFound", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer srv.Close()
+
+		c := New(srv.URL, "alice", "tok", srv.Client())
+		err := c.Stop(context.Background(), srv.URL+"/job/Logistics/999/")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrNotFound)
+	})
+
+	t.Run("401 surfaces ErrAuth", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusUnauthorized)
+		}))
+		defer srv.Close()
+
+		c := New(srv.URL, "alice", "tok", srv.Client())
+		err := c.Stop(context.Background(), srv.URL+"/job/Logistics/42/")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrAuth)
+	})
+
+	t.Run("403 surfaces ErrPermission", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusForbidden)
+		}))
+		defer srv.Close()
+
+		c := New(srv.URL, "alice", "tok", srv.Client())
+		err := c.Stop(context.Background(), srv.URL+"/job/Logistics/42/")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrPermission)
+	})
+
+	t.Run("500 wraps a body snippet", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte("boom: cannot stop"))
+		}))
+		defer srv.Close()
+
+		c := New(srv.URL, "alice", "tok", srv.Client())
+		err := c.Stop(context.Background(), srv.URL+"/job/Logistics/42/")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "500")
+		assert.Contains(t, err.Error(), "boom: cannot stop")
+	})
+}
+
 func TestClient_QueueItem(t *testing.T) {
 	t.Run("pending item has no executable", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
