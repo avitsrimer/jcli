@@ -3,6 +3,8 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -188,6 +190,53 @@ func TestHistory_Render(t *testing.T) {
 		assert.Contains(t, s, "just now")
 	})
 
+	t.Run("columns align across differing build-number widths", func(t *testing.T) {
+		jc := &jenkinsClientMock{
+			BuildsFunc: func(context.Context, string, int) ([]jenkins.Build, error) {
+				return []jenkins.Build{
+					{Number: 10, Result: "SUCCESS", Duration: 64000, Timestamp: now.Add(-5 * time.Minute).UnixMilli()},
+					{Number: 9, Result: "FAILURE", Duration: 2000, Timestamp: now.Add(-2 * time.Hour).UnixMilli()},
+				}, nil
+			},
+		}
+		a, out, _ := readTestApp(t, jc)
+		a.now = fixedClock(now)
+		warmStatusCache(t)
+
+		code := a.run([]string{"history", "deploy-app"})
+		require.Equal(t, exitOK, code)
+		// #9 is padded to the width of #10 so the result/duration/time columns line up exactly.
+		lines := strings.Split(strings.TrimRight(out.String(), "\n"), "\n")
+		require.Equal(t, []string{
+			"deploy-app",
+			"  #10  SUCCESS  1m4s  5m ago",
+			"  #9   FAILURE  2.0s  2h ago",
+		}, lines)
+	})
+
+	t.Run("running em-dash pads by rune width so the time column stays aligned", func(t *testing.T) {
+		jc := &jenkinsClientMock{
+			BuildsFunc: func(context.Context, string, int) ([]jenkins.Build, error) {
+				return []jenkins.Build{
+					{Number: 10, Building: true, Timestamp: now.Add(-30 * time.Second).UnixMilli()},
+					{Number: 9, Result: "SUCCESS", Duration: 2000, Timestamp: now.Add(-2 * time.Hour).UnixMilli()},
+				}, nil
+			},
+		}
+		a, out, _ := readTestApp(t, jc)
+		a.now = fixedClock(now)
+		warmStatusCache(t)
+
+		code := a.run([]string{"history", "deploy-app"})
+		require.Equal(t, exitOK, code)
+		lines := strings.Split(strings.TrimRight(out.String(), "\n"), "\n")
+		require.Equal(t, []string{
+			"deploy-app",
+			"  #10  RUNNING  —     just now",
+			"  #9   SUCCESS  2.0s  2h ago",
+		}, lines)
+	})
+
 	t.Run("empty history renders a no-builds line", func(t *testing.T) {
 		jc := &jenkinsClientMock{
 			BuildsFunc: func(context.Context, string, int) ([]jenkins.Build, error) {
@@ -277,4 +326,33 @@ func TestHistory_NotFound(t *testing.T) {
 	code := a.run([]string{"history", "ghost"})
 	assert.Equal(t, exitNotFound, code)
 	assert.Contains(t, errBuf.String(), "not found")
+}
+
+func TestHistory_BuildsError(t *testing.T) {
+	t.Run("auth failure from Builds maps to exit 2 and wraps the job name", func(t *testing.T) {
+		jc := &jenkinsClientMock{
+			BuildsFunc: func(context.Context, string, int) ([]jenkins.Build, error) {
+				return nil, jenkins.ErrAuth
+			},
+		}
+		a, _, errBuf := readTestApp(t, jc)
+		warmStatusCache(t)
+		code := a.run([]string{"history", "deploy-app"})
+		assert.Equal(t, exitAuth, code)
+		assert.Contains(t, errBuf.String(), `builds for "deploy-app"`)
+	})
+
+	t.Run("generic failure from Builds maps to exit 1", func(t *testing.T) {
+		jc := &jenkinsClientMock{
+			BuildsFunc: func(context.Context, string, int) ([]jenkins.Build, error) {
+				return nil, errors.New("connection reset")
+			},
+		}
+		a, _, errBuf := readTestApp(t, jc)
+		warmStatusCache(t)
+		code := a.run([]string{"history", "deploy-app"})
+		assert.Equal(t, exitUsage, code)
+		assert.Contains(t, errBuf.String(), `builds for "deploy-app"`)
+		assert.Contains(t, errBuf.String(), "connection reset")
+	})
 }

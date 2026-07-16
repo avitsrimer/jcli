@@ -569,6 +569,18 @@ func TestClient_Builds(t *testing.T) {
 		require.Error(t, err)
 		assert.ErrorIs(t, err, ErrNotFound)
 	})
+
+	t.Run("malformed body is a decode error", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte(`{"builds": [ not json`))
+		}))
+		defer srv.Close()
+
+		c := New(srv.URL, "alice", "tok", srv.Client())
+		_, err := c.Builds(context.Background(), "/job/Logistics", 10)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "decode response")
+	})
 }
 
 func TestClient_BuildParams(t *testing.T) {

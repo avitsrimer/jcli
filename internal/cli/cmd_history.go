@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/avitsrimer/jcli/internal/cache"
 	"github.com/avitsrimer/jcli/internal/jenkins"
@@ -43,8 +45,9 @@ func (c *historyCmd) runHistory(name string) error {
 
 // renderHistory writes the job name header followed by one aligned row per build: build number,
 // result (or RUNNING for an in-progress build), wall-clock duration (an em-dash while running),
-// and relative "time ago". A never-built job renders a clear "no builds" line. The number and
-// result columns are padded to their widest value so the duration/time columns line up.
+// and relative "time ago". A never-built job renders a clear "no builds" line. The number, result,
+// and duration columns are each padded to their widest value so the trailing time column lines up;
+// duration is padded by rune count so the multibyte em-dash does not skew the alignment.
 func (c *historyCmd) renderHistory(name string, builds []jenkins.Build) error {
 	if c.app.global.JSON {
 		return c.printHistoryJSON(builds)
@@ -58,7 +61,7 @@ func (c *historyCmd) renderHistory(name string, builds []jenkins.Build) error {
 
 	type row struct{ num, result, duration, since string }
 	rows := make([]row, len(builds))
-	numWidth, resultWidth := 0, 0
+	numWidth, resultWidth, durWidth := 0, 0, 0
 	for i, b := range builds {
 		r := row{num: "#" + strconv.Itoa(b.Number), since: humanizeSince(c.app.clock(), b.Timestamp)}
 		if b.Building {
@@ -72,10 +75,14 @@ func (c *historyCmd) renderHistory(name string, builds []jenkins.Build) error {
 		if len(r.result) > resultWidth {
 			resultWidth = len(r.result)
 		}
+		if dw := utf8.RuneCountInString(r.duration); dw > durWidth {
+			durWidth = dw
+		}
 		rows[i] = r
 	}
 	for _, r := range rows {
-		fmt.Fprintf(w, "  %-*s  %-*s  %s  %s\n", numWidth, r.num, resultWidth, r.result, r.duration, r.since)
+		durPad := strings.Repeat(" ", durWidth-utf8.RuneCountInString(r.duration))
+		fmt.Fprintf(w, "  %-*s  %-*s  %s%s  %s\n", numWidth, r.num, resultWidth, r.result, r.duration, durPad, r.since)
 	}
 	return nil
 }
