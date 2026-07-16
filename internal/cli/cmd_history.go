@@ -19,7 +19,7 @@ import (
 // surfaces jenkins.ErrNotFound (exit 3).
 func (c *historyCmd) runHistory(name string) error {
 	if name == "" {
-		return errors.New("history: job name required")
+		return errors.New("history: missing job name")
 	}
 	if c.Count <= 0 {
 		return fmt.Errorf("history: --count must be a positive number (got %d)", c.Count)

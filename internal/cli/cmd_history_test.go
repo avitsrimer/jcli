@@ -52,7 +52,7 @@ func TestHistory_ArgValidation(t *testing.T) {
 		a, _, errBuf := readTestApp(t, &jenkinsClientMock{})
 		code := a.run([]string{"history"})
 		assert.Equal(t, exitUsage, code)
-		assert.Contains(t, errBuf.String(), "job name required")
+		assert.Contains(t, errBuf.String(), "missing job name")
 	})
 
 	t.Run("count of zero is a usage error", func(t *testing.T) {
