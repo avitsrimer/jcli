@@ -180,6 +180,11 @@ jcli status <job-name> --wait
 # show the parameter values a specific build ran with
 jcli status <job-name> 42 --params
 
+# list a job's most recent builds (default 10; -n/--count to change)
+jcli history <job-name>
+jcli history <job-name> -n 20
+jcli --json history <job-name>
+
 # print a build's console output (latest build, or a specific number)
 jcli logs <job-name>
 jcli logs <job-name> 42
@@ -285,6 +290,32 @@ exits `0`. `--yes`/`-y` skips this prompt. On success it prints
 `canceled build #<n> of <job>`. A missing job or build is exit `3`, an auth
 failure exit `2`, and an abort-permission denial exit `1`.
 
+### `history`
+
+`history` lists a job's most recent builds as an aligned table — build number,
+result, wall-clock duration, and a relative "time ago" column:
+
+```bash
+# the last 10 builds (the default)
+jcli history <job-name>
+
+# change how many to show
+jcli history <job-name> -n 20
+jcli history <job-name> --count 3
+
+# machine-readable output
+jcli --json history <job-name>
+```
+
+A build still running shows `RUNNING` in the result column and an em-dash (`—`)
+for duration; finished builds show their result (`SUCCESS`/`FAILURE`/`ABORTED`/…)
+and a humanized duration (e.g. `1m23s`). Defaults to the last **10** builds;
+`--count`/`-n <N>` overrides. A job that has never built prints a clear "no
+builds" line. `history` is informational — a `FAILURE` in the list is normal
+output and still exits `0`; only a missing job (exit `3`) or auth failure (exit
+`2`) is non-zero. With `--json` it emits an array of build documents
+(`{number, url, building, result, timestamp, duration}`).
+
 ### `logs` and `--logs`
 
 `logs` prints a build's Jenkins console output:
@@ -321,6 +352,7 @@ a missing build is exit 3 and an auth failure exit 2.
 | `build <job>`    | Trigger a build (`--param-<name>=val`, `--wait` to poll to completion, `--no-stages` to suppress stage-view lines, `--logs` to stream the console). |
 | `status [job [number]]` | Show running builds (no args), a job's run state, or a build's stage status (`--wait` to follow, `--logs` for the build's console at the job+number level, `--params` for the values a build ran with). |
 | `cancel <job> <number>` | Stop a running build by job name and build number (prompts for confirmation unless `--yes`/`-y`; an already-finished build reports "not running" and exits 0). |
+| `history <job>`  | List a job's most recent builds as an aligned table — number, result, duration, time ago (`-n`/`--count` to change how many, default 10; `--json` for an array). |
 | `logs <job> [number]` | Print a build's console output — latest build (job only) or a specific number (`--wait` to follow live). |
 | `dump`           | Emit the full cached job map as formatted JSON (`--refresh` to re-crawl). |
 | `install-skill`  | Install the bundled Claude skill to `~/.claude/skills/jenkins-cli` (`--to` to override). |

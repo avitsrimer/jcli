@@ -1,6 +1,6 @@
 ---
 name: jenkins-cli
-description: Trigger, inspect, and list Jenkins CI jobs and builds from the command line via the jcli CLI. Use when the user wants to run a Jenkins build, list or search Jenkins jobs, view job parameters, trigger a parameterized build, check what is running / a build's status, or read a build's console logs.
+description: Trigger, inspect, and list Jenkins CI jobs and builds from the command line via the jcli CLI. Use when the user wants to run a Jenkins build, list or search Jenkins jobs, view job parameters, trigger a parameterized build, check what is running / a build's status, view a job's recent build history, or read a build's console logs.
 ---
 
 # jenkins-cli
@@ -14,6 +14,7 @@ Drive Jenkins from the terminal with `jcli`. Requires `jcli` installed (`make in
 - `jcli get <job>` — show a job's details and parameters.
 - `jcli build <job> --param-<name>=val [--wait]` — trigger a parameterized build; `--wait` polls to completion.
 - `jcli status [job [number]] [--wait]` — no args: list builds running right now; `<job>`: is it running (and its running build's stages); `<job> <number>`: that build's stage status; `--wait` follows a running build. `--logs` (job+number only) shows the console instead of stages; `--params` (job+number only, not with `--logs`) shows the parameter values that build ran with.
+- `jcli history <job> [-n <N>]` — list a job's most recent builds as an aligned table (number, result, duration, relative time). Defaults to the last 10; `--count`/`-n <N>` changes how many. A running build shows `RUNNING` with an em-dash for duration. With the global `--json` (`jcli --json history <job>`) it emits an array of build documents (`{number, url, building, result, timestamp, duration}`). Informational — a `FAILURE` in the list still exits `0`; only a missing job (`3`) or auth failure (`2`) is non-zero.
 - `jcli logs <job> [number] [--wait]` — print a build's console output; `<job>` uses the latest build, `<job> <number>` a specific one; `--wait` follows live. `build --logs` streams the console straight from a trigger (implies `--wait`).
 - `jcli cancel <job> <number> --yes` — stop/cancel/abort a running build. Both the job name and build number are required. Always pass `--yes` from the skill: without it the command asks an interactive `[y/N]` confirmation the skill cannot answer. If the build is already finished it prints "not running" and exits `0` without stopping anything; on success it prints `canceled build #<n> of <job>`.
 - `jcli profile` — list / use / rm profiles.
