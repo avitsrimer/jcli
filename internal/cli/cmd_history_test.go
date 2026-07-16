@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -202,6 +203,70 @@ func TestHistory_Render(t *testing.T) {
 		assert.Contains(t, s, "deploy-app")
 		assert.Contains(t, s, "no builds")
 	})
+}
+
+func TestHistory_JSON(t *testing.T) {
+	t.Run("emits the build array with duration for finished builds, omitted for running", func(t *testing.T) {
+		jc := &jenkinsClientMock{
+			BuildsFunc: func(context.Context, string, int) ([]jenkins.Build, error) {
+				return []jenkins.Build{
+					{Number: 43, Building: true, Timestamp: 300},
+					{Number: 42, Result: "SUCCESS", Duration: 64000, Timestamp: 200},
+					{Number: 41, Result: "FAILURE", Duration: 0, Timestamp: 100},
+				}, nil
+			},
+		}
+		a, out, _ := readTestApp(t, jc)
+		a.global.JSON = true
+		warmStatusCache(t)
+
+		code := a.run([]string{"history", "deploy-app"})
+		require.Equal(t, exitOK, code)
+
+		var got []buildJSON
+		require.NoError(t, json.Unmarshal(out.Bytes(), &got))
+		require.Len(t, got, 3)
+		// order matches human output (newest first).
+		assert.Equal(t, 43, got[0].Number)
+		assert.Equal(t, 42, got[1].Number)
+		assert.Equal(t, 41, got[2].Number)
+		// finished build carries its duration.
+		assert.Equal(t, int64(64000), got[1].Duration)
+
+		// duration is omitted (0) for the running build and the zero-duration finished build.
+		var raw []map[string]any
+		require.NoError(t, json.Unmarshal(out.Bytes(), &raw))
+		_, running := raw[0]["duration"]
+		assert.False(t, running, "running build must omit duration")
+		_, zero := raw[2]["duration"]
+		assert.False(t, zero, "zero-duration build must omit duration")
+	})
+}
+
+// TestStatus_JSONOmitsDuration is a regression guard: the status JSON tree never fetches a build's
+// duration, so the buildJSON.Duration field (added for history) must stay omitted there.
+func TestStatus_JSONOmitsDuration(t *testing.T) {
+	jc := &jenkinsClientMock{
+		BuildStatusFunc: func(_ context.Context, buildURL string) (jenkins.Build, error) {
+			return jenkins.Build{Number: 42, URL: buildURL, Building: false, Result: "SUCCESS", Timestamp: 5}, nil
+		},
+		StageViewFunc: func(context.Context, string) ([]jenkins.Stage, error) {
+			return []jenkins.Stage{{Name: "Build", Status: "SUCCESS", DurationMillis: 2000}}, nil
+		},
+	}
+	a, out, _ := readTestApp(t, jc)
+	a.global.JSON = true
+	warmStatusCache(t)
+
+	code := a.run([]string{"status", "deploy-app", "42"})
+	require.Equal(t, exitOK, code)
+
+	var raw map[string]any
+	require.NoError(t, json.Unmarshal(out.Bytes(), &raw))
+	build, ok := raw["build"].(map[string]any)
+	require.True(t, ok)
+	_, hasDuration := build["duration"]
+	assert.False(t, hasDuration, "status --json must omit duration")
 }
 
 func TestHistory_NotFound(t *testing.T) {

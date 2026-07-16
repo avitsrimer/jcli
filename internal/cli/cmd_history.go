@@ -46,6 +46,9 @@ func (c *historyCmd) runHistory(name string) error {
 // and relative "time ago". A never-built job renders a clear "no builds" line. The number and
 // result columns are padded to their widest value so the duration/time columns line up.
 func (c *historyCmd) renderHistory(name string, builds []jenkins.Build) error {
+	if c.app.global.JSON {
+		return c.printHistoryJSON(builds)
+	}
 	w := c.app.stdout
 	fmt.Fprintln(w, name)
 	if len(builds) == 0 {
@@ -75,6 +78,17 @@ func (c *historyCmd) renderHistory(name string, builds []jenkins.Build) error {
 		fmt.Fprintf(w, "  %-*s  %-*s  %s  %s\n", numWidth, r.num, resultWidth, r.result, r.duration, r.since)
 	}
 	return nil
+}
+
+// printHistoryJSON emits the builds as a JSON array in the same order as the human output (newest
+// first). Each element reuses buildJSON via newBuildJSON, so a finished build carries its duration
+// while a running/zero-duration build omits it (omitempty).
+func (c *historyCmd) printHistoryJSON(builds []jenkins.Build) error {
+	out := make([]*buildJSON, 0, len(builds))
+	for _, b := range builds {
+		out = append(out, newBuildJSON(b))
+	}
+	return c.app.encodeJSON(out)
 }
 
 // humanizeSince renders the time between tsMillis (a build's start, in epoch millis) and now as a
