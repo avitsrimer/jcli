@@ -1,9 +1,81 @@
 package cli
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"strconv"
 	"time"
+
+	"github.com/avitsrimer/jcli/internal/cache"
+	"github.com/avitsrimer/jcli/internal/jenkins"
 )
+
+// runHistory resolves the job (crawling once on a cache miss) and lists its most recent builds. It
+// runs the same pipeline as the other read commands: clientFor → cache.Load → resolveJob → live
+// fetch → render. A missing job name or a non-positive count is a usage error; an unknown job
+// surfaces jenkins.ErrNotFound (exit 3).
+func (c *historyCmd) runHistory(name string) error {
+	if name == "" {
+		return errors.New("history: job name required")
+	}
+	if c.Count <= 0 {
+		return fmt.Errorf("history: --count must be a positive number (got %d)", c.Count)
+	}
+	prof, client, err := c.app.clientFor()
+	if err != nil {
+		return err
+	}
+	m, err := cache.Load(prof.Name)
+	if err != nil {
+		return fmt.Errorf("load cache: %w", err)
+	}
+	job, err := c.app.resolveJob(client, m, prof, name)
+	if err != nil {
+		return err
+	}
+	builds, err := client.Builds(context.Background(), job.Path, c.Count)
+	if err != nil {
+		return fmt.Errorf("builds for %q: %w", name, err)
+	}
+	return c.renderHistory(name, builds)
+}
+
+// renderHistory writes the job name header followed by one aligned row per build: build number,
+// result (or RUNNING for an in-progress build), wall-clock duration (an em-dash while running),
+// and relative "time ago". A never-built job renders a clear "no builds" line. The number and
+// result columns are padded to their widest value so the duration/time columns line up.
+func (c *historyCmd) renderHistory(name string, builds []jenkins.Build) error {
+	w := c.app.stdout
+	fmt.Fprintln(w, name)
+	if len(builds) == 0 {
+		fmt.Fprintln(w, "  no builds")
+		return nil
+	}
+
+	type row struct{ num, result, duration, since string }
+	rows := make([]row, len(builds))
+	numWidth, resultWidth := 0, 0
+	for i, b := range builds {
+		r := row{num: "#" + strconv.Itoa(b.Number), since: humanizeSince(c.app.clock(), b.Timestamp)}
+		if b.Building {
+			r.result, r.duration = "RUNNING", "—"
+		} else {
+			r.result, r.duration = buildResult(b), humanizeDuration(b.Duration)
+		}
+		if len(r.num) > numWidth {
+			numWidth = len(r.num)
+		}
+		if len(r.result) > resultWidth {
+			resultWidth = len(r.result)
+		}
+		rows[i] = r
+	}
+	for _, r := range rows {
+		fmt.Fprintf(w, "  %-*s  %-*s  %s  %s\n", numWidth, r.num, resultWidth, r.result, r.duration, r.since)
+	}
+	return nil
+}
 
 // humanizeSince renders the time between tsMillis (a build's start, in epoch millis) and now as a
 // compact relative string: "just now" (<60s), "Nm ago" (<60m), "Nh ago" (<24h), else "Nd ago". A
