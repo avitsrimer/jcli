@@ -195,6 +195,19 @@ func (c *Client) LastBuild(ctx context.Context, jobPath string) (Build, bool, er
 	return *detail.LastBuild, true, nil
 }
 
+// Builds reads a job's most recent builds addressed by its Jenkins path, newest-first, bounded
+// to limit via the tree range {0,limit}. It returns an empty slice for a never-built job and
+// ErrNotFound when the job is absent. Unlike LastBuild/BuildStatus, the tree requests duration.
+func (c *Client) Builds(ctx context.Context, jobPath string, limit int) ([]Build, error) {
+	tree := fmt.Sprintf("builds[number,url,building,result,timestamp,duration]{0,%d}", limit)
+	var detail jobBuilds
+	path := strings.TrimRight(jobPath, "/") + "/api/json"
+	if err := c.getJSON(ctx, path, url.Values{"tree": {tree}}, &detail); err != nil {
+		return nil, fmt.Errorf("builds %s: %w", jobPath, err)
+	}
+	return detail.Builds, nil
+}
+
 // BuildStatus reads a single build's status by its absolute URL, returning its number, building
 // flag, terminal result, and start timestamp. ErrNotFound surfaces when the build is absent.
 func (c *Client) BuildStatus(ctx context.Context, buildURL string) (Build, error) {

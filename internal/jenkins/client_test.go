@@ -493,6 +493,84 @@ const buildParamsBody = `{
   ]
 }`
 
+// buildsBody mirrors GET <job>/api/json?tree=builds[...]{0,N}: builds newest-first with a
+// running head build (building=true, result=null, duration=0) and two finished builds.
+const buildsBody = `{
+  "_class": "org.jenkinsci.plugins.workflow.job.WorkflowJob",
+  "builds": [
+    {"number": 44, "url": "https://jenkins/job/Logistics/44/", "building": true, "result": null, "timestamp": 1700000044000, "duration": 0},
+    {"number": 43, "url": "https://jenkins/job/Logistics/43/", "building": false, "result": "SUCCESS", "timestamp": 1700000043000, "duration": 192000},
+    {"number": 42, "url": "https://jenkins/job/Logistics/42/", "building": false, "result": "FAILURE", "timestamp": 1700000042000, "duration": 4200}
+  ]
+}`
+
+func TestClient_Builds(t *testing.T) {
+	t.Run("returns builds newest-first with duration decoded", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			assert.Equal(t, "/job/Logistics/api/json", r.URL.Path)
+			assert.Equal(t, "builds[number,url,building,result,timestamp,duration]{0,10}", r.URL.Query().Get("tree"))
+			_, _ = w.Write([]byte(buildsBody))
+		}))
+		defer srv.Close()
+
+		c := New(srv.URL, "alice", "tok", srv.Client())
+		builds, err := c.Builds(context.Background(), "/job/Logistics", 10)
+		require.NoError(t, err)
+		require.Len(t, builds, 3)
+
+		assert.Equal(t, 44, builds[0].Number)
+		assert.True(t, builds[0].Building)
+		assert.Equal(t, int64(0), builds[0].Duration)
+
+		assert.Equal(t, 43, builds[1].Number)
+		assert.False(t, builds[1].Building)
+		assert.Equal(t, "SUCCESS", builds[1].Result)
+		assert.Equal(t, int64(192000), builds[1].Duration)
+		assert.Equal(t, int64(1700000043000), builds[1].Timestamp)
+
+		assert.Equal(t, 42, builds[2].Number)
+		assert.Equal(t, "FAILURE", builds[2].Result)
+		assert.Equal(t, int64(4200), builds[2].Duration)
+	})
+
+	t.Run("range query carries the requested limit", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			assert.Equal(t, "builds[number,url,building,result,timestamp,duration]{0,3}", r.URL.Query().Get("tree"))
+			_, _ = w.Write([]byte(`{"builds":[]}`))
+		}))
+		defer srv.Close()
+
+		c := New(srv.URL, "alice", "tok", srv.Client())
+		builds, err := c.Builds(context.Background(), "/job/Logistics", 3)
+		require.NoError(t, err)
+		assert.Empty(t, builds)
+	})
+
+	t.Run("never-built job yields an empty slice", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte(`{"builds":[]}`))
+		}))
+		defer srv.Close()
+
+		c := New(srv.URL, "alice", "tok", srv.Client())
+		builds, err := c.Builds(context.Background(), "/job/Fresh", 10)
+		require.NoError(t, err)
+		assert.Empty(t, builds)
+	})
+
+	t.Run("absent job surfaces ErrNotFound", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer srv.Close()
+
+		c := New(srv.URL, "alice", "tok", srv.Client())
+		_, err := c.Builds(context.Background(), "/job/Nope", 10)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrNotFound)
+	})
+}
+
 func TestClient_BuildParams(t *testing.T) {
 	t.Run("flattens parameters in order with stringified values", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -135,18 +135,27 @@ type stageViewResponse struct {
 // Build is a build's status detail read either from <buildURL>/api/json or from a job's
 // lastBuild. Building is true while the run is in progress; Result holds the terminal outcome
 // once finished. Timestamp is the build's start time in epoch milliseconds (used for elapsed).
+// Duration is the wall-clock run time in milliseconds; only Builds requests it in its tree, so
+// it stays zero on LastBuild/BuildStatus results.
 type Build struct {
 	Number    int    `json:"number"`
 	URL       string `json:"url"`
 	Building  bool   `json:"building"`
 	Result    string `json:"result"`
 	Timestamp int64  `json:"timestamp"`
+	Duration  int64  `json:"duration"`
 }
 
 // jobLastBuild is the shape of GET <job>/api/json?tree=lastBuild[...]; LastBuild is nil for a
 // job that has never run.
 type jobLastBuild struct {
 	LastBuild *Build `json:"lastBuild"`
+}
+
+// jobBuilds is the shape of GET <job>/api/json?tree=builds[...]{0,N}; Builds is newest-first and
+// empty for a job that has never run.
+type jobBuilds struct {
+	Builds []Build `json:"builds"`
 }
 
 // RunningBuild is one currently-executing build reported by /computer. Name is the executable's
