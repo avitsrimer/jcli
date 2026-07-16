@@ -25,6 +25,12 @@ func (a *app) commands() []command {
 				"(unknown names and out-of-range Choice values are rejected).",
 			data: &buildCmd{app: a}},
 		{name: "status", short: "show running jobs or a build's stage status", data: &statusCmd{app: a}},
+		{name: "history", short: "list a job's recent builds",
+			long: "Lists a job's most recent builds as an aligned table (build number, result, " +
+				"wall-clock duration, and relative time). A build still running shows RUNNING with " +
+				"an em-dash for duration. Defaults to the last 10 builds; use --count/-n <N> to " +
+				"change. With --json emits an array of build documents instead.",
+			data: &historyCmd{app: a}},
 		{name: "cancel", short: "stop a running build",
 			long: "Takes a job name and build number, e.g. jcli cancel my-job 42. Prompts for " +
 				"confirmation ([y/N]) before stopping the build unless --yes is given (for scripted " +
@@ -128,6 +134,22 @@ type statusCmd struct {
 
 // Execute implements flags.Commander. Positionals are [job [number]]; none means "running now".
 func (c *statusCmd) Execute(args []string) error { return c.app.fail(c.runStatus(args)) }
+
+// historyCmd lists a job's most recent builds as an aligned table. The job name arrives as the
+// first positional; --count/-n bounds how many builds are fetched and shown (default 10).
+type historyCmd struct {
+	app   *app
+	Count int `short:"n" long:"count" default:"10" description:"number of recent builds to show"`
+}
+
+// Execute implements flags.Commander. The first positional is the job name (required).
+func (c *historyCmd) Execute(args []string) error {
+	var name string
+	if len(args) > 0 {
+		name = args[0]
+	}
+	return c.app.fail(c.runHistory(name))
+}
 
 // logsCmd prints a build's console output. Positionals are job [number]; job-only targets the
 // latest build. --wait follows the console progressively until the build finishes.

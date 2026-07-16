@@ -51,6 +51,7 @@ type jenkinsClient interface {
 	BuildResult(ctx context.Context, buildURL string) (jenkins.BuildResult, error)
 	StageView(ctx context.Context, buildURL string) ([]jenkins.Stage, error)
 	LastBuild(ctx context.Context, jobPath string) (jenkins.Build, bool, error)
+	Builds(ctx context.Context, jobPath string, limit int) ([]jenkins.Build, error)
 	BuildStatus(ctx context.Context, buildURL string) (jenkins.Build, error)
 	BuildParams(ctx context.Context, buildURL string) ([]jenkins.BuildParam, error)
 	RunningBuilds(ctx context.Context) ([]jenkins.RunningBuild, error)

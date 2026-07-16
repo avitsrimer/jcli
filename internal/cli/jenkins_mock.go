@@ -31,6 +31,9 @@ var _ jenkinsClient = &jenkinsClientMock{}
 //			BuildStatusFunc: func(ctx context.Context, buildURL string) (jenkins.Build, error) {
 //				panic("mock out the BuildStatus method")
 //			},
+//			BuildsFunc: func(ctx context.Context, jobPath string, limit int) ([]jenkins.Build, error) {
+//				panic("mock out the Builds method")
+//			},
 //			ConsoleProgressiveFunc: func(ctx context.Context, buildURL string, start int64) (jenkins.ConsoleChunk, error) {
 //				panic("mock out the ConsoleProgressive method")
 //			},
@@ -79,6 +82,9 @@ type jenkinsClientMock struct {
 
 	// BuildStatusFunc mocks the BuildStatus method.
 	BuildStatusFunc func(ctx context.Context, buildURL string) (jenkins.Build, error)
+
+	// BuildsFunc mocks the Builds method.
+	BuildsFunc func(ctx context.Context, jobPath string, limit int) ([]jenkins.Build, error)
 
 	// ConsoleProgressiveFunc mocks the ConsoleProgressive method.
 	ConsoleProgressiveFunc func(ctx context.Context, buildURL string, start int64) (jenkins.ConsoleChunk, error)
@@ -141,6 +147,15 @@ type jenkinsClientMock struct {
 			Ctx context.Context
 			// BuildURL is the buildURL argument value.
 			BuildURL string
+		}
+		// Builds holds details about calls to the Builds method.
+		Builds []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// JobPath is the jobPath argument value.
+			JobPath string
+			// Limit is the limit argument value.
+			Limit int
 		}
 		// ConsoleProgressive holds details about calls to the ConsoleProgressive method.
 		ConsoleProgressive []struct {
@@ -213,6 +228,7 @@ type jenkinsClientMock struct {
 	lockBuildParams        sync.RWMutex
 	lockBuildResult        sync.RWMutex
 	lockBuildStatus        sync.RWMutex
+	lockBuilds             sync.RWMutex
 	lockConsoleProgressive sync.RWMutex
 	lockConsoleText        sync.RWMutex
 	lockJobParams          sync.RWMutex
@@ -370,6 +386,46 @@ func (mock *jenkinsClientMock) BuildStatusCalls() []struct {
 	mock.lockBuildStatus.RLock()
 	calls = mock.calls.BuildStatus
 	mock.lockBuildStatus.RUnlock()
+	return calls
+}
+
+// Builds calls BuildsFunc.
+func (mock *jenkinsClientMock) Builds(ctx context.Context, jobPath string, limit int) ([]jenkins.Build, error) {
+	if mock.BuildsFunc == nil {
+		panic("jenkinsClientMock.BuildsFunc: method is nil but jenkinsClient.Builds was just called")
+	}
+	callInfo := struct {
+		Ctx     context.Context
+		JobPath string
+		Limit   int
+	}{
+		Ctx:     ctx,
+		JobPath: jobPath,
+		Limit:   limit,
+	}
+	mock.lockBuilds.Lock()
+	mock.calls.Builds = append(mock.calls.Builds, callInfo)
+	mock.lockBuilds.Unlock()
+	return mock.BuildsFunc(ctx, jobPath, limit)
+}
+
+// BuildsCalls gets all the calls that were made to Builds.
+// Check the length with:
+//
+//	len(mockedjenkinsClient.BuildsCalls())
+func (mock *jenkinsClientMock) BuildsCalls() []struct {
+	Ctx     context.Context
+	JobPath string
+	Limit   int
+} {
+	var calls []struct {
+		Ctx     context.Context
+		JobPath string
+		Limit   int
+	}
+	mock.lockBuilds.RLock()
+	calls = mock.calls.Builds
+	mock.lockBuilds.RUnlock()
 	return calls
 }
 

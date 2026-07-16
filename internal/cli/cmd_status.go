@@ -373,13 +373,16 @@ type runningJSON struct {
 	Timestamp int64  `json:"timestamp"`
 }
 
-// buildJSON is the --json shape for a build's status.
+// buildJSON is the --json shape for a build's status. Duration is populated only by the history
+// command (its tree requests it); omitempty keeps it out of the status/get trees that never fetch
+// it, so their output stays byte-for-byte identical.
 type buildJSON struct {
 	Number    int    `json:"number"`
 	URL       string `json:"url"`
 	Building  bool   `json:"building"`
 	Result    string `json:"result,omitempty"`
 	Timestamp int64  `json:"timestamp"`
+	Duration  int64  `json:"duration,omitempty"`
 }
 
 // newBuildJSON maps a jenkins.Build to its --json shape. Callers that must distinguish a zero build
@@ -391,6 +394,7 @@ func newBuildJSON(b jenkins.Build) *buildJSON {
 		Building:  b.Building,
 		Result:    b.Result,
 		Timestamp: b.Timestamp,
+		Duration:  b.Duration,
 	}
 }
 
@@ -424,7 +428,7 @@ func (c *statusCmd) printRunningJSON(builds []jenkins.RunningBuild) error {
 	for _, b := range builds {
 		out = append(out, runningJSON{Name: b.Name, Number: b.Number, URL: b.URL, Timestamp: b.Timestamp})
 	}
-	return c.encodeJSON(out)
+	return c.app.encodeJSON(out)
 }
 
 // printBuildJSON emits the job/build status JSON document. A zero build (never built) yields a null
@@ -437,7 +441,7 @@ func (c *statusCmd) printBuildJSON(name string, b jenkins.Build, stages []jenkin
 	for _, st := range stages {
 		doc.Stages = append(doc.Stages, stageJSON{Name: st.Name, Status: st.Status, DurationMillis: st.DurationMillis})
 	}
-	return c.encodeJSON(doc)
+	return c.app.encodeJSON(doc)
 }
 
 // printBuildParamsJSON emits the {job, build, params} JSON document for a build's parameter values.
@@ -450,15 +454,15 @@ func (c *statusCmd) printBuildParamsJSON(name string, b jenkins.Build, params []
 	for _, p := range params {
 		doc.Params[p.Name] = p.Value
 	}
-	return c.encodeJSON(doc)
+	return c.app.encodeJSON(doc)
 }
 
 // encodeJSON writes v as indented JSON to stdout.
-func (c *statusCmd) encodeJSON(v any) error {
-	enc := json.NewEncoder(c.app.stdout)
+func (a *app) encodeJSON(v any) error {
+	enc := json.NewEncoder(a.stdout)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(v); err != nil {
-		return fmt.Errorf("encode status json: %w", err)
+		return fmt.Errorf("encode json: %w", err)
 	}
 	return nil
 }
